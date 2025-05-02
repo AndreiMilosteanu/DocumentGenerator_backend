@@ -9,6 +9,7 @@ router = APIRouter()
 
 # In-memory store: document_id -> thread_id
 session_data: Dict[str, str] = {}
+doc_data: Dict[str, dict] = {}
 logger = logging.getLogger("conversation")
 
 class StartRequest(BaseModel):
@@ -30,6 +31,23 @@ async def start_conversation(document_id: str, body: StartRequest):
         # 1. Create a new thread container for the assistant
         thread = openai.beta.threads.create()
         logger.info(f"Created new thread container {thread.id} for document {document_id}")
+
+        doc_data[document_id] = {
+        "_topic": "Deklarationsanalyse",
+        "_section_idx": 3,  # indicates all three sections have been completed
+        "Projekt Details": {
+            "Standort": "Berlin, Deutschland",
+            "Auftraggeber": "Erdbaron GmbH"
+        },
+        "Projekt Objectives": {
+            "Ziele": "Erfassung der Bodenwerte vor Baubeginn",
+            "Anforderungen": "Detaillierte Dokumentation bestehender Bedingungen"
+        },
+        "Anhänge": {
+            "Dokumente": ["grundgutachten.pdf"],
+            "Bilder": ["bohrkern1.png", "bohrkern2.png"]
+        }
+    }
 
         # 2. Inject the topic instructions as a user message
         openai.beta.threads.messages.create(

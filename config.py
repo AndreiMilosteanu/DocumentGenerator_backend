@@ -15,6 +15,7 @@ def get_env_keys(env_path: str = ".env") -> List[str]:
 class Settings(BaseSettings):
     OPENAI_API_KEY: str = Field(..., env="OPENAI_API_KEY")
     ASSISTANT_ID: str = Field(..., env="ASSISTANT_ID")
+    WKHTMLTOPDF_PATH: Path = Field(..., env="WKHTMLTOPDF_PATH")
     DATA_DIR: Path = Field(default=Path("./data"))
     ALLOWED_FILE_TYPES: List[str] = Field(default=[".pdf", ".docx", ".png", ".jpg", ".jpeg"])
     CHAPTERS: List[str] = Field(default=[

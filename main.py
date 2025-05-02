@@ -17,7 +17,7 @@ app.add_middleware(
 from routers import upload, conversation, pdfgen
 app.include_router(conversation.router, prefix="/conversation", tags=["conversation"])
 # app.include_router(upload.router, prefix="/upload", tags=["upload"])
-#app.include_router(pdfgen.router, prefix="/documents", tags=["pdf"])
+app.include_router(pdfgen.router, prefix="/documents", tags=["pdf"])
 
 @app.get("/ping")
 async def ping():

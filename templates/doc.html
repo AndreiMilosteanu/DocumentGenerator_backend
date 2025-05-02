@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ title }}</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em; }
+    h1 { text-align: center; }
+    h2 { margin-top: 1.5em; border-bottom: 1px solid #333; padding-bottom: 0.3em; }
+    h3 { margin-top: 1em; margin-left: 1em; }
+    p { margin-left: 2em; }
+    .section { page-break-after: always; }
+  </style>
+</head>
+<body>
+  <h1>{{ title }}</h1>
+  {% for sec in structure %}
+    <div class="section">
+      <h2>{{ sec.title }}</h2>
+      {% for sub in sec.subsections %}
+        <h3>{{ sub }}</h3>
+        <p>{{ sec['values'].get(sub, "") }}</p>
+      {% endfor %}
+    </div>
+  {% endfor %}
+</body>
+</html>
