@@ -16,14 +16,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = Field(..., env="OPENAI_API_KEY")
     ASSISTANT_ID: str = Field(..., env="ASSISTANT_ID")
     WKHTMLTOPDF_PATH: Path = Field(..., env="WKHTMLTOPDF_PATH")
+    DATABASE_URL: str = Field(..., env="DATABASE_URL")
     DATA_DIR: Path = Field(default=Path("./data"))
     ALLOWED_FILE_TYPES: List[str] = Field(default=[".pdf", ".docx", ".png", ".jpg", ".jpeg"])
-    CHAPTERS: List[str] = Field(default=[
-        "deklarationsanalyse",
-        "bodenuntersuchung",
-        "baugrundgutachten",
-        "plattendruckversuch"
-    ])
 
     class Config:
         env_file = ".env"

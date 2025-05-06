@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from tortoise.contrib.fastapi import register_tortoise
 from config import settings
 
 app = FastAPI(
     title="Erdbaron Document Generator",
-    description="API for AI-guided document creation",
+    description="API for AI-guided document creation with persistence",
     version="0.1.0"
 )
 app.add_middleware(
@@ -15,9 +16,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 from routers import upload, conversation, pdfgen
-app.include_router(conversation.router, prefix="/conversation", tags=["conversation"])
 # app.include_router(upload.router, prefix="/upload", tags=["upload"])
+app.include_router(conversation.router, prefix="/conversation", tags=["conversation"])
 app.include_router(pdfgen.router, prefix="/documents", tags=["pdf"])
+
+# Register Tortoise ORM
+register_tortoise(
+    app,
+    db_url=settings.DATABASE_URL,
+    modules={"models": ["models"]},
+    generate_schemas=True,
+    add_exception_handlers=True,
+)
 
 @app.get("/ping")
 async def ping():

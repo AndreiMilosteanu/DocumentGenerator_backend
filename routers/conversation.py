@@ -4,6 +4,7 @@ from typing import Dict
 import logging
 import openai
 from config import settings
+from templates.structure import DOCUMENT_STRUCTURE
 
 router = APIRouter()
 
