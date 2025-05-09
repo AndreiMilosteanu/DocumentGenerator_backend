@@ -14,6 +14,18 @@ class Document(Model):
     class Meta:
         table = "documents"
 
+class Project(Model):
+    """
+    Represents a user project that references a document.
+    """
+    id = fields.UUIDField(pk=True)
+    name = fields.CharField(max_length=255)
+    document = fields.OneToOneField("models.Document", related_name="project")
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "projects"
+
 class SectionData(Model):
     """
     Stores structured JSON data for each section of a document.

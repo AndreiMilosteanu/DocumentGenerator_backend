@@ -15,10 +15,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-from routers import upload, conversation, pdfgen
+from routers import upload, conversation, pdfgen, projects
 # app.include_router(upload.router, prefix="/upload", tags=["upload"])
 app.include_router(conversation.router, prefix="/conversation", tags=["conversation"])
 app.include_router(pdfgen.router, prefix="/documents", tags=["pdf"])
+app.include_router(projects.router, prefix="/projects", tags=["projects"])
 
 # Register Tortoise ORM
 register_tortoise(
