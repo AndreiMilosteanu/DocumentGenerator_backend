@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List, Optional
 import json, logging
 import openai
 from config import settings
 from templates.structure import DOCUMENT_STRUCTURE
-from models import Document, SectionData, ChatMessage
+from models import Document, SectionData, ChatMessage, ActiveSubsection
 
 router = APIRouter()
 logger = logging.getLogger("conversation")
@@ -13,6 +13,12 @@ logger.setLevel(logging.DEBUG)
 
 class StartRequest(BaseModel):
     topic: str
+    section: Optional[str] = None
+    subsection: Optional[str] = None
+
+class SubsectionSelectRequest(BaseModel):
+    section: str
+    subsection: str
 
 class ReplyRequest(BaseModel):
     message: str
@@ -20,13 +26,24 @@ class ReplyRequest(BaseModel):
 class ConversationResponse(BaseModel):
     data: Dict[str, Any]
     message: str
+    section: Optional[str] = None
+    subsection: Optional[str] = None
+
+class SubsectionInfo(BaseModel):
+    section: str
+    subsection: str
+    has_conversation: bool
 
 async def _run_thread_and_parse(thread_id: str, topic: str) -> Tuple[Dict[str, Any], str]:
     """
     Executes the assistant run on an existing thread, returns parsed JSON data and human reply.
     """
     # Get the appropriate assistant ID for the topic
-    assistant_id = settings.TOPIC_ASSISTANTS.get(topic, settings.ASSISTANT_ID)
+    assistant_id = settings.TOPIC_ASSISTANTS.get(topic)
+    
+    if not assistant_id:
+        logger.error(f"No assistant ID available for topic '{topic}'. Please configure at least one assistant.")
+        raise ValueError(f"No assistant ID available. Configure ASSISTANT_ID or {topic.upper()}_ASSISTANT_ID in .env file")
     
     # Kick off the assistant run
     logger.debug(f"Starting assistant run for thread_id: {thread_id} with assistant_id: {assistant_id}")
@@ -201,7 +218,11 @@ async def _send_format_correction(thread_id: str, doc_topic: str) -> None:
     Sends a format correction instruction to the thread if the assistant isn't following the format.
     """
     # Get the appropriate assistant ID for the topic
-    assistant_id = settings.TOPIC_ASSISTANTS.get(doc_topic, settings.ASSISTANT_ID)
+    assistant_id = settings.TOPIC_ASSISTANTS.get(doc_topic)
+    
+    if not assistant_id:
+        logger.error(f"No assistant ID available for topic '{doc_topic}'. Please configure at least one assistant.")
+        raise ValueError(f"No assistant ID available. Configure ASSISTANT_ID or {doc_topic.upper()}_ASSISTANT_ID in .env file")
     
     correction_message = (
         "CRITICAL FORMAT CORRECTION: Your last response did not follow the required format. "
@@ -230,6 +251,147 @@ async def _send_format_correction(thread_id: str, doc_topic: str) -> None:
     
     return
 
+async def _get_active_subsection(document_id: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Get the currently active subsection for a document
+    Returns a tuple of (section, subsection)
+    """
+    doc = await Document.get(id=document_id)
+    active = await ActiveSubsection.filter(document=doc).order_by("-last_accessed").first()
+    
+    if active:
+        return active.section, active.subsection
+    return None, None
+
+async def _set_active_subsection(document_id: str, section: str, subsection: str) -> None:
+    """
+    Set or update the active subsection for a document
+    """
+    doc = await Document.get(id=document_id)
+    
+    # Check if this subsection already exists
+    existing = await ActiveSubsection.filter(
+        document=doc,
+        section=section,
+        subsection=subsection
+    ).first()
+    
+    if existing:
+        # Update the last_accessed timestamp
+        existing.last_accessed = None  # This will trigger the auto_now update
+        await existing.save()
+    else:
+        # Create a new active subsection
+        await ActiveSubsection.create(
+            document=doc,
+            section=section,
+            subsection=subsection
+        )
+
+async def _get_section_data_for_subsection(doc: Document, section: str, subsection: str) -> Dict:
+    """
+    Get the section data relevant to a specific subsection
+    """
+    section_data = await SectionData.filter(document=doc, section=section).first()
+    
+    if section_data:
+        data = section_data.data
+        if subsection in data:
+            return {section: {subsection: data[subsection]}}
+    
+    # Return empty data structure if subsection not found
+    return {section: {subsection: ""}}
+
+@router.post("/{document_id}/select-subsection")
+async def select_subsection(document_id: str, request: SubsectionSelectRequest):
+    """
+    Select a specific subsection for the conversation
+    """
+    try:
+        doc = await Document.get(id=document_id)
+    except Document.DoesNotExist:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Validate section and subsection
+    topic = doc.topic
+    if topic not in DOCUMENT_STRUCTURE:
+        raise HTTPException(status_code=404, detail=f"Unknown topic '{topic}'")
+    
+    section_valid = False
+    subsection_valid = False
+    
+    for sec_obj in DOCUMENT_STRUCTURE[topic]:
+        sec_name = list(sec_obj.keys())[0]
+        if sec_name == request.section:
+            section_valid = True
+            if request.subsection in sec_obj[sec_name]:
+                subsection_valid = True
+                break
+    
+    if not section_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid section '{request.section}' for topic '{topic}'")
+    
+    if not subsection_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid subsection '{request.subsection}' for section '{request.section}'")
+    
+    # Set as active subsection
+    await _set_active_subsection(document_id, request.section, request.subsection)
+    
+    # Check if there are previous messages for this subsection
+    has_messages = await ChatMessage.filter(
+        document=doc,
+        section=request.section,
+        subsection=request.subsection
+    ).exists()
+    
+    # If no thread exists yet, we'll need to create one when starting the conversation
+    thread_exists = doc.thread_id is not None
+    
+    return {
+        "section": request.section,
+        "subsection": request.subsection,
+        "has_messages": has_messages,
+        "thread_exists": thread_exists
+    }
+
+@router.get("/{document_id}/subsections", response_model=List[SubsectionInfo])
+async def list_subsections(document_id: str):
+    """
+    List all subsections for a document and their conversation status
+    """
+    try:
+        doc = await Document.get(id=document_id)
+    except Document.DoesNotExist:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Get document topic
+    topic = doc.topic
+    if topic not in DOCUMENT_STRUCTURE:
+        raise HTTPException(status_code=404, detail=f"Unknown topic '{topic}'")
+    
+    # Get all messages for this document grouped by section/subsection
+    messages = await ChatMessage.filter(document=doc).all()
+    subsection_msgs = {}
+    
+    for msg in messages:
+        if msg.section and msg.subsection:
+            key = f"{msg.section}:{msg.subsection}"
+            subsection_msgs[key] = True
+    
+    # Build list of all subsections
+    result = []
+    for sec_obj in DOCUMENT_STRUCTURE[topic]:
+        section = list(sec_obj.keys())[0]
+        for subsection in sec_obj[section]:
+            key = f"{section}:{subsection}"
+            result.append(SubsectionInfo(
+                section=section,
+                subsection=subsection,
+                has_conversation=key in subsection_msgs
+            ))
+    
+    return result
+
 @router.post("/{document_id}/start", response_model=ConversationResponse)
 async def start_conversation(document_id: str, body: StartRequest):
     logger.debug(f"Starting conversation for document {document_id} with topic {body.topic}")
@@ -243,6 +405,20 @@ async def start_conversation(document_id: str, body: StartRequest):
     doc, created = await Document.get_or_create(id=document_id, defaults={"topic": topic})
     logger.debug(f"Document {'created' if created else 'retrieved'} with ID {doc.id}")
     
+    # Handle section and subsection
+    section = body.section
+    subsection = body.subsection
+    
+    # If section/subsection not provided, get the first one from the structure
+    if not section or not subsection:
+        first_section_obj = DOCUMENT_STRUCTURE[topic][0]
+        section = list(first_section_obj.keys())[0]
+        subsection = first_section_obj[section][0]
+        logger.debug(f"Using default section '{section}' and subsection '{subsection}'")
+    
+    # Set as active subsection
+    await _set_active_subsection(document_id, section, subsection)
+    
     # If new or no thread, create OpenAI thread
     if created or not doc.thread_id:
         thread = openai.beta.threads.create()
@@ -253,10 +429,10 @@ async def start_conversation(document_id: str, body: StartRequest):
     logger.debug(f"Using thread ID {thread_id}")
     
     # Get the appropriate assistant ID for the topic
-    assistant_id = settings.TOPIC_ASSISTANTS.get(topic, settings.ASSISTANT_ID)
+    assistant_id = settings.TOPIC_ASSISTANTS.get(topic)
     logger.debug(f"Using assistant ID {assistant_id} for topic {topic}")
     
-    # Persist system instructions into thread and DB
+    # Persist system instructions into thread and DB with subsection context
     prompt_lines = [
         f"You are an expert assistant for topic '{topic}'. You need to get relevant data from the user to complete the PDF document for this topic. ",
         "Following sections are needed:"
@@ -265,12 +441,15 @@ async def start_conversation(document_id: str, body: StartRequest):
         title = list(sec.keys())[0]
         subs = sec[title]
         prompt_lines.append(f"- {title}: {', '.join(subs)}")
+    
+    # Add context for the specific subsection
     prompt_lines.append(
-        "Go through the sections one by one and ask the user for information for that section until you consider you have enough."
+        f"\nWe are currently working on the subsection '{subsection}' in section '{section}'."
     )
     prompt_lines.append(
-        "When one section is completed or the user requests to move on, start with the next section."
+        f"Please focus on gathering information ONLY for this specific subsection until instructed otherwise."
     )
+    
     prompt_lines.append(
         "IMPORTANT FORMAT INSTRUCTION: For each reply from your side, you MUST output TWO parts in the following format:"
     )
@@ -281,7 +460,7 @@ async def start_conversation(document_id: str, body: StartRequest):
         "2) Your human-readable response, separated from the JSON by exactly two newlines."
     )
     prompt_lines.append(
-        "Example format:\n{\"Section Name\": {\"Subsection1\": \"Content\", \"Subsection2\": \"Content\"}}\n\nYour human response text here..."
+        f"Example format:\n{{\"{section}\": {{\"{subsection}\": \"Content gathered for this subsection\"}}}}\n\nYour human response text here..."
     )
     prompt_lines.append(
         "The user will only see the human-readable part, but the JSON is critical for system functioning."
@@ -293,14 +472,22 @@ async def start_conversation(document_id: str, body: StartRequest):
         "FAILURE TO FOLLOW THIS FORMAT will result in data loss. Always begin your response with a valid JSON object."
     )
     system_prompt = " ".join(prompt_lines)
+    
     # send system prompt
     openai.beta.threads.messages.create(
         thread_id=thread_id,
         role="user",
         content=system_prompt
     )
-    # save to DB
-    await ChatMessage.create(document=doc, role="user", content=system_prompt)
+    
+    # save to DB with section context
+    await ChatMessage.create(
+        document=doc, 
+        role="user", 
+        content=system_prompt,
+        section=section,
+        subsection=subsection
+    )
     logger.debug(f"System prompt saved to DB with length {len(system_prompt)}")
     
     # run assistant and parse
@@ -317,15 +504,159 @@ async def start_conversation(document_id: str, body: StartRequest):
     logger.debug(f"Received data with {len(data)} keys and message of length {len(question)}")
     
     # persist section data and assistant message
-    for section, vals in data.items():
-        await SectionData.get_or_create(document=doc, section=section, defaults={"data": vals})
-        await SectionData.filter(document=doc, section=section).update(data=vals)
+    for sec_name, sec_data in data.items():
+        if isinstance(sec_data, dict):
+            await SectionData.get_or_create(document=doc, section=sec_name, defaults={"data": sec_data})
+            await SectionData.filter(document=doc, section=sec_name).update(data=sec_data)
     logger.debug(f"Saved {len(data)} section data items to DB")
     
-    await ChatMessage.create(document=doc, role="assistant", content=question)
+    await ChatMessage.create(
+        document=doc, 
+        role="assistant", 
+        content=question,
+        section=section,
+        subsection=subsection
+    )
     logger.debug(f"Saved assistant message to DB with length {len(question)}")
     
-    return {"data": data, "message": question}
+    return {
+        "data": data, 
+        "message": question,
+        "section": section,
+        "subsection": subsection
+    }
+
+@router.post("/{document_id}/subsection/start", response_model=ConversationResponse)
+async def start_subsection_conversation(document_id: str, request: SubsectionSelectRequest):
+    """
+    Start a conversation specifically for a subsection (or switch to a new one)
+    """
+    try:
+        doc = await Document.get(id=document_id)
+    except Document.DoesNotExist:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Validate section and subsection
+    topic = doc.topic
+    if topic not in DOCUMENT_STRUCTURE:
+        raise HTTPException(status_code=404, detail=f"Unknown topic '{topic}'")
+    
+    section_valid = False
+    subsection_valid = False
+    
+    for sec_obj in DOCUMENT_STRUCTURE[topic]:
+        sec_name = list(sec_obj.keys())[0]
+        if sec_name == request.section:
+            section_valid = True
+            if request.subsection in sec_obj[sec_name]:
+                subsection_valid = True
+                break
+    
+    if not section_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid section '{request.section}' for topic '{topic}'")
+    
+    if not subsection_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid subsection '{request.subsection}' for section '{request.section}'")
+    
+    # Set as active subsection
+    await _set_active_subsection(document_id, request.section, request.subsection)
+    
+    # Check if thread exists, create one if needed
+    if not doc.thread_id:
+        thread = openai.beta.threads.create()
+        doc.thread_id = thread.id
+        await doc.save()
+        logger.debug(f"Created new thread with ID {thread.id}")
+    
+    thread_id = doc.thread_id
+    
+    # Get the appropriate assistant ID for the topic
+    assistant_id = settings.TOPIC_ASSISTANTS.get(topic)
+    
+    # Check if we already have conversation for this subsection
+    has_messages = await ChatMessage.filter(
+        document=doc,
+        section=request.section,
+        subsection=request.subsection
+    ).exists()
+    
+    # If this is the first time we're accessing this subsection, tell the assistant about the context switch
+    if not has_messages:
+        # Create subsection context message
+        context_message = (
+            f"We are now working on the subsection '{request.subsection}' in section '{request.section}'. "
+            f"Please focus on gathering information ONLY for this specific subsection until instructed otherwise. "
+            f"All previous information is still valid, but now we need to work on this particular subsection."
+        )
+        
+        # Send to OpenAI thread
+        openai.beta.threads.messages.create(
+            thread_id=thread_id,
+            role="user",
+            content=context_message
+        )
+        
+        # Save to DB
+        await ChatMessage.create(
+            document=doc,
+            role="user",
+            content=context_message,
+            section=request.section,
+            subsection=request.subsection
+        )
+        
+        # Get response from assistant
+        data, message = await _run_thread_and_parse(thread_id, topic)
+        
+        # Save assistant response
+        await ChatMessage.create(
+            document=doc,
+            role="assistant",
+            content=message,
+            section=request.section,
+            subsection=request.subsection
+        )
+        
+        # Update section data if any was returned
+        for sec_name, sec_data in data.items():
+            if isinstance(sec_data, dict):
+                existing = await SectionData.filter(document=doc, section=sec_name).first()
+                if existing:
+                    # Merge new data with existing
+                    merged_data = existing.data
+                    merged_data.update(sec_data)
+                    await SectionData.filter(document=doc, section=sec_name).update(data=merged_data)
+                else:
+                    await SectionData.create(document=doc, section=sec_name, data=sec_data)
+        
+        return {
+            "data": data,
+            "message": message,
+            "section": request.section,
+            "subsection": request.subsection
+        }
+    else:
+        # If we have existing messages, just get section data for the subsection
+        section_data = await _get_section_data_for_subsection(doc, request.section, request.subsection)
+        
+        # Get the last message for this subsection
+        last_msg = await ChatMessage.filter(
+            document=doc,
+            section=request.section,
+            subsection=request.subsection,
+            role="assistant"
+        ).order_by("-timestamp").first()
+        
+        message = ""
+        if last_msg:
+            message = last_msg.content
+        
+        return {
+            "data": section_data,
+            "message": message,
+            "section": request.section,
+            "subsection": request.subsection
+        }
 
 @router.post("/{document_id}/reply", response_model=ConversationResponse)
 async def reply_conversation(document_id: str, body: ReplyRequest):
@@ -343,14 +674,28 @@ async def reply_conversation(document_id: str, body: ReplyRequest):
         logger.error(f"Thread ID not found for document {document_id}")
         raise HTTPException(status_code=400, detail="Thread not initialized. Call start first.")
     
-    # Persist user into thread and DB
+    # Get the active subsection for this document
+    active_section, active_subsection = await _get_active_subsection(document_id)
+    
+    if not active_section or not active_subsection:
+        logger.error(f"No active subsection for document {document_id}")
+        raise HTTPException(status_code=400, detail="No active subsection selected. Please select a subsection first.")
+    
+    # Persist user message into thread and DB with section context
     logger.debug(f"Sending user message to OpenAI: {body.message[:50]}...")
     openai.beta.threads.messages.create(
         thread_id=thread_id,
         role="user",
         content=body.message
     )
-    await ChatMessage.create(document=doc, role="user", content=body.message)
+    
+    await ChatMessage.create(
+        document=doc, 
+        role="user", 
+        content=body.message,
+        section=active_section,
+        subsection=active_subsection
+    )
     logger.debug("User message saved to DB")
     
     # run assistant and parse
@@ -367,17 +712,70 @@ async def reply_conversation(document_id: str, body: ReplyRequest):
     logger.debug(f"Received data with {len(data)} keys and message of length {len(question)}")
     
     # persist section data and assistant message
-    sections_updated = 0
-    for section, vals in data.items():
-        await SectionData.get_or_create(document=doc, section=section, defaults={"data": vals})
-        await SectionData.filter(document=doc, section=section).update(data=vals)
-        sections_updated += 1
-    logger.debug(f"Updated {sections_updated} sections in DB")
+    for sec_name, sec_data in data.items():
+        if isinstance(sec_data, dict):
+            existing = await SectionData.filter(document=doc, section=sec_name).first()
+            if existing:
+                # Merge with existing data rather than overwriting
+                merged_data = existing.data
+                for subsec, value in sec_data.items():
+                    merged_data[subsec] = value
+                await SectionData.filter(document=doc, section=sec_name).update(data=merged_data)
+            else:
+                await SectionData.create(document=doc, section=sec_name, data=sec_data)
     
-    await ChatMessage.create(document=doc, role="assistant", content=question)
+    # Save assistant message with section context
+    await ChatMessage.create(
+        document=doc, 
+        role="assistant", 
+        content=question,
+        section=active_section,
+        subsection=active_subsection
+    )
     logger.debug(f"Saved assistant message to DB with length {len(question)}")
     
-    return {"data": data, "message": question}
+    return {
+        "data": data, 
+        "message": question,
+        "section": active_section,
+        "subsection": active_subsection
+    }
+
+@router.get("/{document_id}/messages/{section}/{subsection}")
+async def get_subsection_messages(document_id: str, section: str, subsection: str):
+    """
+    Get all messages for a specific subsection
+    """
+    try:
+        doc = await Document.get(id=document_id)
+    except Document.DoesNotExist:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    messages = await ChatMessage.filter(
+        document=doc,
+        section=section,
+        subsection=subsection
+    ).order_by("timestamp").all()
+    
+    # Format messages for the response
+    formatted_messages = []
+    for msg in messages:
+        # Skip system messages or prompts for the UI
+        if msg.role == "user" and len(msg.content) > 500:  # Likely a system prompt
+            continue
+            
+        formatted_messages.append({
+            "id": msg.id,
+            "role": msg.role,
+            "content": msg.content,
+            "timestamp": msg.timestamp.isoformat()
+        })
+    
+    return {
+        "section": section,
+        "subsection": subsection,
+        "messages": formatted_messages
+    }
 
 @router.get("/{document_id}/debug")
 async def debug_conversation(document_id: str):

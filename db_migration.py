@@ -3,7 +3,7 @@ import logging
 import json
 from tortoise import Tortoise, connections
 from config import settings
-from models import Document, Project, SectionData, ChatMessage
+from models import Document, Project, SectionData, ChatMessage, ActiveSubsection
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -33,7 +33,8 @@ async def check_and_create_tables():
         ("documents", Document),
         ("projects", Project),
         ("section_data", SectionData),
-        ("chat_messages", ChatMessage)
+        ("chat_messages", ChatMessage),
+        ("active_subsections", ActiveSubsection)
     ]
     
     for table_name, model_class in models_check:
@@ -68,61 +69,29 @@ async def apply_column_migrations():
     tables = await connection.execute_query(query)
     existing_tables = [row[0] for row in tables[1]]
     
-    # Example migrations - uncomment and modify if you need to make specific changes:
-    
-    # 1. Add a column if it doesn't exist
-    # if "documents" in existing_tables:
-    #     # Check if pdf_data column exists
-    #     column_query = """
-    #         SELECT column_name 
-    #         FROM information_schema.columns 
-    #         WHERE table_name = 'documents' 
-    #         AND table_schema = 'public';
-    #     """
-    #     columns_info = await connection.execute_query(column_query)
-    #     existing_columns = [row[0] for row in columns_info[1]]
-    #     
-    #     if "pdf_data" not in existing_columns:
-    #         logger.info("Adding pdf_data column to documents table")
-    #         await connection.execute_query(
-    #             "ALTER TABLE documents ADD COLUMN pdf_data BYTEA NULL;"
-    #         )
-    
-    # 2. Rename a column (PostgreSQL supports it directly)
-    # if "section_data" in existing_tables:
-    #     # Check if old column exists and new column doesn't
-    #     column_query = """
-    #         SELECT column_name 
-    #         FROM information_schema.columns 
-    #         WHERE table_name = 'section_data' 
-    #         AND table_schema = 'public';
-    #     """
-    #     columns_info = await connection.execute_query(column_query)
-    #     existing_columns = [row[0] for row in columns_info[1]]
-    #     
-    #     if "old_column" in existing_columns and "new_column" not in existing_columns:
-    #         logger.info("Renaming old_column to new_column in section_data table")
-    #         await connection.execute_query(
-    #             "ALTER TABLE section_data RENAME COLUMN old_column TO new_column;"
-    #         )
-    
-    # 3. Change column type (PostgreSQL example)
-    # if "section_data" in existing_tables:
-    #     # Check if column exists and needs type change
-    #     column_query = """
-    #         SELECT column_name, data_type
-    #         FROM information_schema.columns 
-    #         WHERE table_name = 'section_data' 
-    #         AND table_schema = 'public';
-    #     """
-    #     columns_info = await connection.execute_query(column_query)
-    #     column_types = {row[0]: row[1] for row in columns_info[1]}
-    #     
-    #     if "data" in column_types and column_types["data"] != "jsonb":
-    #         logger.info("Changing data column type to JSONB in section_data table")
-    #         await connection.execute_query(
-    #             "ALTER TABLE section_data ALTER COLUMN data TYPE JSONB USING data::JSONB;"
-    #         )
+    # Add section and subsection columns to chat_messages if they don't exist
+    if "chat_messages" in existing_tables:
+        # Check if the section and subsection columns exist
+        column_query = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'chat_messages' 
+            AND table_schema = 'public';
+        """
+        columns_info = await connection.execute_query(column_query)
+        existing_columns = [row[0] for row in columns_info[1]]
+        
+        if "section" not in existing_columns:
+            logger.info("Adding section column to chat_messages table")
+            await connection.execute_query(
+                "ALTER TABLE chat_messages ADD COLUMN section VARCHAR(100) NULL;"
+            )
+        
+        if "subsection" not in existing_columns:
+            logger.info("Adding subsection column to chat_messages table")
+            await connection.execute_query(
+                "ALTER TABLE chat_messages ADD COLUMN subsection VARCHAR(100) NULL;"
+            )
     
     logger.info("Column migrations completed")
 
@@ -144,78 +113,68 @@ async def handle_complex_migrations():
     tables = await connection.execute_query(query)
     existing_tables = [row[0] for row in tables[1]]
     
-    # Check for specific tables that might need complex migrations
-    # Example: migrating a table with columns that need to be dropped or restructured
+    # Create active_subsections table if it doesn't exist
+    if "active_subsections" not in existing_tables:
+        await connection.execute_query("""
+            CREATE TABLE IF NOT EXISTS active_subsections (
+                id SERIAL PRIMARY KEY,
+                document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                section VARCHAR(100) NOT NULL,
+                subsection VARCHAR(100) NOT NULL,
+                last_accessed TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(document_id, section, subsection)
+            );
+        """)
+        logger.info("Created active_subsections table")
     
-    # 1. Example for complex document restructuring (uncomment and modify if needed)
-    # if "old_documents" in existing_tables and "documents" not in existing_tables:
-    #     logger.info("Performing complex migration for documents table")
-    #     
-    #     # Step 1: Get current data
-    #     old_rows = await connection.execute_query("SELECT * FROM old_documents")
-    #     
-    #     # Step 2: Create the new table (Tortoise will do this for us)
-    #     
-    #     # Step 3: Migrate data from old to new
-    #     for row in old_rows[1]:
-    #         # Adjust indices based on your old table structure
-    #         id_val = row[0]
-    #         topic_val = row[1]
-    #         thread_id_val = row[2] if row[2] else "NULL"
-    #         
-    #         # Insert into new table with the correct structure
-    #         await connection.execute_query(
-    #             f"INSERT INTO documents (id, topic, thread_id, created_at) "
-    #             f"VALUES ('{id_val}', '{topic_val}', {thread_id_val if thread_id_val != 'NULL' else 'NULL'}, NOW())"
-    #         )
-    #     
-    #     # Step 4: Drop the old table after confirming data migration
-    #     old_count = old_rows[0]
-    #     new_count = (await connection.execute_query("SELECT COUNT(*) FROM documents"))[1][0][0]
-    #     
-    #     if new_count >= old_count:
-    #         await connection.execute_query("DROP TABLE old_documents")
-    #         logger.info(f"Dropped old_documents table after migrating {new_count} rows")
-    #     else:
-    #         logger.warning(f"Data migration incomplete! Old: {old_count}, New: {new_count}")
-    
-    # 2. Example for section_data migrations where we need to transform data format
-    # if "section_data" in existing_tables:
-    #     # Check if structure needs to be updated
-    #     column_query = """
-    #         SELECT column_name, data_type
-    #         FROM information_schema.columns 
-    #         WHERE table_name = 'section_data' 
-    #         AND table_schema = 'public';
-    #     """
-    #     columns_info = await connection.execute_query(column_query)
-    #     column_types = {row[0]: row[1] for row in columns_info[1]}
-    #     
-    #     if "data" in column_types and needs_data_format_change():
-    #         logger.info("Migrating section_data table data format")
-    #         
-    #         # Get all rows
-    #         rows = await connection.execute_query("SELECT id, document_id, section, data FROM section_data")
-    #         
-    #         # Process each row to transform data
-    #         for row in rows[1]:
-    #             row_id = row[0]
-    #             old_data = row[3]
-    #             
-    #             # Transform data format (example: string to JSON)
-    #             try:
-    #                 if isinstance(old_data, str):
-    #                     new_data = json.dumps(json.loads(old_data))
-    #                 else:
-    #                     new_data = json.dumps(old_data)
-    #                     
-    #                 # Update with transformed data
-    #                 await connection.execute_query(
-    #                     f"UPDATE section_data SET data = $1::jsonb WHERE id = $2",
-    #                     [new_data, row_id]
-    #                 )
-    #             except Exception as e:
-    #                 logger.error(f"Error transforming data for section_data id {row_id}: {e}")
+    # If chat_messages exists but doesn't have section/subsection columns, 
+    # we need to set default values for existing rows
+    if "chat_messages" in existing_tables:
+        # Check if we've added the section and subsection columns
+        column_query = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'chat_messages' 
+            AND table_schema = 'public';
+        """
+        columns_info = await connection.execute_query(column_query)
+        existing_columns = [row[0] for row in columns_info[1]]
+        
+        if "section" in existing_columns and "subsection" in existing_columns:
+            # Get count of rows with NULL section/subsection
+            null_count_query = """
+                SELECT COUNT(*) FROM chat_messages 
+                WHERE section IS NULL OR subsection IS NULL;
+            """
+            null_count_result = await connection.execute_query(null_count_query)
+            null_count = null_count_result[1][0][0]
+            
+            if null_count > 0:
+                logger.info(f"Found {null_count} chat_messages with NULL section/subsection")
+                
+                # For each document, find its topic and set default section/subsection for messages
+                docs_query = """
+                    SELECT id, topic FROM documents 
+                    WHERE id IN (
+                        SELECT DISTINCT document_id FROM chat_messages 
+                        WHERE section IS NULL OR subsection IS NULL
+                    );
+                """
+                docs_result = await connection.execute_query(docs_query)
+                
+                for doc_row in docs_result[1]:
+                    doc_id = doc_row[0]
+                    doc_topic = doc_row[1]
+                    
+                    # Get first section and subsection for this topic from DOCUMENT_STRUCTURE
+                    # For migration purposes, we'll use a simpler approach
+                    update_query = """
+                        UPDATE chat_messages
+                        SET section = 'Projekt Details', subsection = 'Standort'
+                        WHERE document_id = %s AND (section IS NULL OR subsection IS NULL);
+                    """
+                    await connection.execute_query(update_query, [doc_id])
+                    logger.info(f"Updated section/subsection for messages of document {doc_id}")
     
     logger.info("Complex migrations completed")
 
@@ -252,7 +211,16 @@ async def verify_migration():
             "role": "character varying",
             "content": "text",
             "file_path": "character varying",
-            "timestamp": "timestamp without time zone"
+            "timestamp": "timestamp without time zone",
+            "section": "character varying",
+            "subsection": "character varying"
+        },
+        "active_subsections": {
+            "id": "integer",
+            "document_id": "uuid",
+            "section": "character varying",
+            "subsection": "character varying",
+            "last_accessed": "timestamp without time zone"
         }
     }
     
@@ -317,7 +285,8 @@ async def verify_migration():
     expected_fks = {
         "projects": [("document_id", "documents", "id")],
         "section_data": [("document_id", "documents", "id")],
-        "chat_messages": [("document_id", "documents", "id")]
+        "chat_messages": [("document_id", "documents", "id")],
+        "active_subsections": [("document_id", "documents", "id")]
     }
     
     for table_name, expected_relations in expected_fks.items():

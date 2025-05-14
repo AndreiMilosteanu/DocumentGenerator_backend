@@ -49,6 +49,23 @@ class ChatMessage(Model):
     content = fields.TextField(null=True)
     file_path = fields.CharField(max_length=255, null=True)  # optional file upload reference
     timestamp = fields.DatetimeField(auto_now_add=True)
+    # New fields to track which section and subsection this message belongs to
+    section = fields.CharField(max_length=100, null=True)
+    subsection = fields.CharField(max_length=100, null=True)
 
     class Meta:
         table = "chat_messages"
+
+class ActiveSubsection(Model):
+    """
+    Tracks which subsection is currently active for a document.
+    """
+    id = fields.IntField(pk=True)
+    document = fields.ForeignKeyField("models.Document", related_name="active_subsections")
+    section = fields.CharField(max_length=100)
+    subsection = fields.CharField(max_length=100)
+    last_accessed = fields.DatetimeField(auto_now=True)
+
+    class Meta:
+        table = "active_subsections"
+        unique_together = (("document_id", "section", "subsection"),)

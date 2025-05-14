@@ -14,7 +14,7 @@ def get_env_keys(env_path: str = ".env") -> List[str]:
 
 class Settings(BaseSettings):
     OPENAI_API_KEY: str = Field(..., env="OPENAI_API_KEY")
-    ASSISTANT_ID: str = Field(..., env="ASSISTANT_ID")  # Default assistant ID
+    ASSISTANT_ID: Optional[str] = Field(default=None, env="ASSISTANT_ID")
     WKHTMLTOPDF_PATH: Path = Field(..., env="WKHTMLTOPDF_PATH")
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
     DATA_DIR: Path = Field(default=Path("./data"))
@@ -29,11 +29,20 @@ class Settings(BaseSettings):
     # Topic to assistant ID mapping (computed property)
     @property
     def TOPIC_ASSISTANTS(self) -> Dict[str, str]:
+        fallback_id = self.ASSISTANT_ID
+        if not fallback_id:
+            fallback_id = next((aid for aid in [
+                self.DEKLARATIONSANALYSE_ASSISTANT_ID,
+                self.BODENUNTERSUCHUNG_ASSISTANT_ID,
+                self.BAUGRUNDGUTACHTEN_ASSISTANT_ID,
+                self.PLATTENDRUCKVERSUCH_ASSISTANT_ID
+            ] if aid), None)
+        
         return {
-            "Deklarationsanalyse": self.DEKLARATIONSANALYSE_ASSISTANT_ID or self.ASSISTANT_ID,
-            "Bodenuntersuchung": self.BODENUNTERSUCHUNG_ASSISTANT_ID or self.ASSISTANT_ID,
-            "Baugrundgutachten": self.BAUGRUNDGUTACHTEN_ASSISTANT_ID or self.ASSISTANT_ID,
-            "Plattendruckversuch": self.PLATTENDRUCKVERSUCH_ASSISTANT_ID or self.ASSISTANT_ID
+            "Deklarationsanalyse": self.DEKLARATIONSANALYSE_ASSISTANT_ID or fallback_id,
+            "Bodenuntersuchung": self.BODENUNTERSUCHUNG_ASSISTANT_ID or fallback_id,
+            "Baugrundgutachten": self.BAUGRUNDGUTACHTEN_ASSISTANT_ID or fallback_id,
+            "Plattendruckversuch": self.PLATTENDRUCKVERSUCH_ASSISTANT_ID or fallback_id
         }
 
     class Config:

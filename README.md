@@ -49,6 +49,7 @@ PLATTENDRUCKVERSUCH_ASSISTANT_ID=assistant_id_for_plattendruckversuch
 - Generates structured documents following predefined templates
 - Stores conversation history and document data in a PostgreSQL database
 - Exports documents in PDF format
+- Supports subsection-specific conversations within the same context thread
 
 ## API Overview
 
@@ -68,7 +69,11 @@ PLATTENDRUCKVERSUCH_ASSISTANT_ID=assistant_id_for_plattendruckversuch
 ### Conversations
 
 - `POST /conversation/{document_id}/start` - Start a conversation for a document
-- `POST /conversation/{document_id}/reply` - Reply to a conversation
+- `POST /conversation/{document_id}/reply` - Reply to the active subsection's conversation
+- `GET /conversation/{document_id}/subsections` - List all subsections and their conversation status
+- `POST /conversation/{document_id}/select-subsection` - Select a subsection for conversation
+- `POST /conversation/{document_id}/subsection/start` - Start or switch to a subsection conversation
+- `GET /conversation/{document_id}/messages/{section}/{subsection}` - Get messages for a subsection
 - `GET /conversation/{document_id}/debug` - Debug conversation data (development only)
 - `GET /conversation/{document_id}/analyze_format` - Analyze message format (development only)
 
@@ -83,7 +88,7 @@ PLATTENDRUCKVERSUCH_ASSISTANT_ID=assistant_id_for_plattendruckversuch
 ├── config.py              # Configuration and settings
 ├── main.py                # FastAPI application entry point
 ├── models.py              # Database models
-├── generate_schema.py     # Database schema generation
+├── db_migration.py        # Database migration script
 ├── templates/             # HTML and document structure templates
 ├── routers/               # API routes
 │   ├── conversation.py    # Conversation endpoints
@@ -91,21 +96,30 @@ PLATTENDRUCKVERSUCH_ASSISTANT_ID=assistant_id_for_plattendruckversuch
 │   └── projects.py        # Project management endpoints
 └── services/              # Business logic services
     ├── openai_client.py   # OpenAI API integration
+    ├── function_schemas.py # Schema definitions for functions
     └── pdf_renderer.py    # PDF rendering service
 ```
 
 ## Workflow Examples
 
-### Creating a new document
+### Creating a new document with subsection conversations
 
 1. Create a project: `POST /projects/create`
-2. Start a conversation: `POST /conversation/{document_id}/start`
-3. Have conversation: `POST /conversation/{document_id}/reply`
-4. Generate PDF: `GET /documents/{document_id}/pdf`
+2. Start a conversation for the first subsection: `POST /conversation/{document_id}/start`
+3. Continue the conversation: `POST /conversation/{document_id}/reply`
+4. Switch to a different subsection: `POST /conversation/{document_id}/select-subsection`
+5. Start conversation for the new subsection: `POST /conversation/{document_id}/subsection/start`
+6. Reply in the context of the new subsection: `POST /conversation/{document_id}/reply`
+7. Get all messages for a specific subsection: `GET /conversation/{document_id}/messages/{section}/{subsection}`
+8. Generate PDF: `GET /documents/{document_id}/pdf`
 
-### Working with existing documents
+### Subsection-Based Conversation Flow
 
-1. List projects: `GET /projects/list`
-2. Get project details: `GET /projects/{project_id}`
-3. Continue conversation: `POST /conversation/{document_id}/reply`
-4. Check status: `GET /projects/{project_id}/status` 
+The system uses a single OpenAI thread for the entire document but maintains context for each subsection:
+
+1. Each document has sections (e.g., "Project Details") and subsections (e.g., "Location", "Client")
+2. When creating a project, the first subsection is automatically selected
+3. The UI allows switching between subsections while maintaining the conversation context
+4. When switching to a new subsection, the assistant is informed of the context change
+5. All messages are tagged with their section and subsection for proper organization
+6. The system tracks which subsection is currently active for each document 
