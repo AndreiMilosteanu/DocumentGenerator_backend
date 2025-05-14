@@ -21,15 +21,18 @@ class ConversationResponse(BaseModel):
     data: Dict[str, Any]
     message: str
 
-async def _run_thread_and_parse(thread_id: str) -> Tuple[Dict[str, Any], str]:
+async def _run_thread_and_parse(thread_id: str, topic: str) -> Tuple[Dict[str, Any], str]:
     """
     Executes the assistant run on an existing thread, returns parsed JSON data and human reply.
     """
+    # Get the appropriate assistant ID for the topic
+    assistant_id = settings.TOPIC_ASSISTANTS.get(topic, settings.ASSISTANT_ID)
+    
     # Kick off the assistant run
-    logger.debug(f"Starting assistant run for thread_id: {thread_id}")
+    logger.debug(f"Starting assistant run for thread_id: {thread_id} with assistant_id: {assistant_id}")
     run = openai.beta.threads.runs.create_and_poll(
         thread_id=thread_id,
-        assistant_id=settings.ASSISTANT_ID
+        assistant_id=assistant_id
     )
     logger.debug(f"Run completed with status: {run.status}")
     
@@ -197,6 +200,9 @@ async def _send_format_correction(thread_id: str, doc_topic: str) -> None:
     """
     Sends a format correction instruction to the thread if the assistant isn't following the format.
     """
+    # Get the appropriate assistant ID for the topic
+    assistant_id = settings.TOPIC_ASSISTANTS.get(doc_topic, settings.ASSISTANT_ID)
+    
     correction_message = (
         "CRITICAL FORMAT CORRECTION: Your last response did not follow the required format. "
         "You MUST structure ALL responses in exactly two parts:\n\n"
@@ -218,7 +224,7 @@ async def _send_format_correction(thread_id: str, doc_topic: str) -> None:
     # Run the assistant to get a corrected response
     run = openai.beta.threads.runs.create_and_poll(
         thread_id=thread_id,
-        assistant_id=settings.ASSISTANT_ID
+        assistant_id=assistant_id
     )
     logger.debug(f"Correction run completed with status: {run.status}")
     
@@ -245,6 +251,10 @@ async def start_conversation(document_id: str, body: StartRequest):
         logger.debug(f"Created new thread with ID {thread.id}")
     thread_id = doc.thread_id
     logger.debug(f"Using thread ID {thread_id}")
+    
+    # Get the appropriate assistant ID for the topic
+    assistant_id = settings.TOPIC_ASSISTANTS.get(topic, settings.ASSISTANT_ID)
+    logger.debug(f"Using assistant ID {assistant_id} for topic {topic}")
     
     # Persist system instructions into thread and DB
     prompt_lines = [
@@ -295,14 +305,14 @@ async def start_conversation(document_id: str, body: StartRequest):
     
     # run assistant and parse
     logger.debug("Running assistant and parsing response...")
-    data, question = await _run_thread_and_parse(thread_id)
+    data, question = await _run_thread_and_parse(thread_id, topic)
     
     # Check if we got valid data - if not, try to send a format correction
     if not data and question:
         logger.warning("No valid JSON data found in assistant's response. Sending format correction.")
         await _send_format_correction(thread_id, doc.topic)
         # Try again after correction
-        data, question = await _run_thread_and_parse(thread_id)
+        data, question = await _run_thread_and_parse(thread_id, topic)
     
     logger.debug(f"Received data with {len(data)} keys and message of length {len(question)}")
     
@@ -345,14 +355,14 @@ async def reply_conversation(document_id: str, body: ReplyRequest):
     
     # run assistant and parse
     logger.debug("Running assistant and parsing response...")
-    data, question = await _run_thread_and_parse(thread_id)
+    data, question = await _run_thread_and_parse(thread_id, doc.topic)
     
     # Check if we got valid data - if not, try to send a format correction
     if not data and question:
         logger.warning("No valid JSON data found in assistant's response. Sending format correction.")
         await _send_format_correction(thread_id, doc.topic)
         # Try again after correction
-        data, question = await _run_thread_and_parse(thread_id)
+        data, question = await _run_thread_and_parse(thread_id, doc.topic)
     
     logger.debug(f"Received data with {len(data)} keys and message of length {len(question)}")
     

@@ -1,47 +1,54 @@
-# Erdbaron Document Generator Backend
+# Document Generator Backend
 
-A FastAPI backend for AI-guided document creation with document/project management capabilities.
+This application generates specialized documents based on different topics by leveraging OpenAI assistants.
 
-## Features
+## Environment Variables Setup
 
-- AI-assisted document generation with OpenAI's Assistants API
-- Document structure templates for various document types
-- PDF generation from collected data
-- Project management for organizing documents
-- Persistent storage of conversations and document data
-- RESTful API for frontend integration
+Create a `.env` file in the root directory with the following variables:
 
-## Setup
+```
+OPENAI_API_KEY=your_openai_api_key
+ASSISTANT_ID=your_default_assistant_id
+DATABASE_URL=postgresql://username:password@hostname:port/database
+WKHTMLTOPDF_PATH=/path/to/wkhtmltopdf
 
-### Prerequisites
+# Topic-specific OpenAI Assistants
+DEKLARATIONSANALYSE_ASSISTANT_ID=assistant_id_for_deklarationsanalyse
+BODENUNTERSUCHUNG_ASSISTANT_ID=assistant_id_for_bodenuntersuchung
+BAUGRUNDGUTACHTEN_ASSISTANT_ID=assistant_id_for_baugrundgutachten
+PLATTENDRUCKVERSUCH_ASSISTANT_ID=assistant_id_for_plattendruckversuch
+```
 
-- Python 3.9+
-- PostgreSQL database
-- wkhtmltopdf (for PDF generation)
-- OpenAI API key and Assistant ID
+### Assistant Configuration
 
-### Installation
+1. Create a separate OpenAI assistant for each topic in the OpenAI platform.
+2. Configure each assistant with specialized knowledge for its specific topic.
+3. Copy each assistant's ID to the corresponding environment variable.
+4. The `ASSISTANT_ID` variable serves as a fallback if a topic-specific assistant is not configured.
 
-1. Clone the repository
-2. Install dependencies:
+## Installation and Setup
+
+1. Install the required dependencies:
    ```
    pip install -r requirements.txt
    ```
-3. Create a `.env` file with the following variables:
+
+2. Run the database migration to create the necessary tables:
    ```
-   OPENAI_API_KEY=your_openai_api_key
-   ASSISTANT_ID=your_openai_assistant_id
-   DATABASE_URL=postgresql://user:password@localhost:5432/erdbaron
-   WKHTMLTOPDF_PATH=/path/to/wkhtmltopdf
+   python db_migration.py
    ```
-4. Run the schema generation script to create database tables:
-   ```
-   python generate_schema.py
-   ```
-5. Start the server:
+
+3. Start the application:
    ```
    uvicorn main:app --reload
    ```
+
+## Features
+
+- Automatically selects the appropriate OpenAI assistant based on the document topic
+- Generates structured documents following predefined templates
+- Stores conversation history and document data in a PostgreSQL database
+- Exports documents in PDF format
 
 ## API Overview
 
