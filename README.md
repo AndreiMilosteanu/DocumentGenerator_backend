@@ -50,6 +50,7 @@ PLATTENDRUCKVERSUCH_ASSISTANT_ID=assistant_id_for_plattendruckversuch
 - Stores conversation history and document data in a PostgreSQL database
 - Exports documents in PDF format
 - Supports subsection-specific conversations within the same context thread
+- Subsection approval system for granular control over document content
 
 ## API Overview
 
@@ -74,13 +75,19 @@ PLATTENDRUCKVERSUCH_ASSISTANT_ID=assistant_id_for_plattendruckversuch
 - `POST /conversation/{document_id}/select-subsection` - Select a subsection for conversation
 - `POST /conversation/{document_id}/subsection/start` - Start or switch to a subsection conversation
 - `GET /conversation/{document_id}/messages/{section}/{subsection}` - Get messages for a subsection
+- `POST /conversation/{document_id}/extract-and-approve/{section}/{subsection}` - Extract and approve subsection content
+- `POST /conversation/{document_id}/approve/{section}/{subsection}` - Approve custom subsection content
 - `GET /conversation/{document_id}/debug` - Debug conversation data (development only)
 - `GET /conversation/{document_id}/analyze_format` - Analyze message format (development only)
 
-### Documents
+### Document Content & PDF Generation
 
-- `GET /documents/{document_id}/pdf` - Generate and view PDF
-- `GET /documents/{document_id}/download` - Download the PDF
+- `GET /documents/{document_id}/pdf` - Generate and view PDF with approved content
+- `GET /documents/{document_id}/download` - Download the PDF with approved content
+- `GET /documents/{document_id}/current-data` - Get current section data
+- `POST /documents/{document_id}/approve` - Approve a subsection for inclusion in PDF
+- `POST /documents/{document_id}/approve-batch` - Approve multiple subsections at once
+- `GET /documents/{document_id}/approved` - List all approved subsections
 
 ## Project Structure
 
@@ -102,16 +109,17 @@ PLATTENDRUCKVERSUCH_ASSISTANT_ID=assistant_id_for_plattendruckversuch
 
 ## Workflow Examples
 
-### Creating a new document with subsection conversations
+### Creating a document with subsection-based conversations and approval
 
 1. Create a project: `POST /projects/create`
 2. Start a conversation for the first subsection: `POST /conversation/{document_id}/start`
 3. Continue the conversation: `POST /conversation/{document_id}/reply`
-4. Switch to a different subsection: `POST /conversation/{document_id}/select-subsection`
-5. Start conversation for the new subsection: `POST /conversation/{document_id}/subsection/start`
-6. Reply in the context of the new subsection: `POST /conversation/{document_id}/reply`
-7. Get all messages for a specific subsection: `GET /conversation/{document_id}/messages/{section}/{subsection}`
-8. Generate PDF: `GET /documents/{document_id}/pdf`
+4. Extract and approve content from current subsection: `POST /conversation/{document_id}/extract-and-approve/{section}/{subsection}`
+5. Switch to a different subsection: `POST /conversation/{document_id}/select-subsection`
+6. Start conversation for the new subsection: `POST /conversation/{document_id}/subsection/start`
+7. Reply in the context of the new subsection: `POST /conversation/{document_id}/reply`
+8. Approve content from this subsection: `POST /conversation/{document_id}/extract-and-approve/{section}/{subsection}`
+9. Generate PDF with only approved content: `GET /documents/{document_id}/pdf`
 
 ### Subsection-Based Conversation Flow
 
@@ -122,4 +130,15 @@ The system uses a single OpenAI thread for the entire document but maintains con
 3. The UI allows switching between subsections while maintaining the conversation context
 4. When switching to a new subsection, the assistant is informed of the context change
 5. All messages are tagged with their section and subsection for proper organization
-6. The system tracks which subsection is currently active for each document 
+6. The system tracks which subsection is currently active for each document
+
+### Content Approval Flow
+
+The system allows granular control over what content appears in the generated PDF:
+
+1. As the assistant extracts information during conversations, it's stored in the SectionData model
+2. The user can review the extracted content for each subsection
+3. The user explicitly approves specific subsection content for inclusion in the PDF
+4. Only approved content will appear in the generated PDF document
+5. The user can modify content before approval if the assistant's extraction isn't perfect
+6. Approved content is stored separately from the conversation data 

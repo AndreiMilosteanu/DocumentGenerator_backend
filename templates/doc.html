@@ -1,27 +1,116 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <title>{{ title }}</title>
-  <style>
-    body { font-family: sans-serif; margin: 2em; }
-    h1 { text-align: center; }
-    h2 { margin-top: 1.5em; border-bottom: 1px solid #333; padding-bottom: 0.3em; }
-    h3 { margin-top: 1em; margin-left: 1em; }
-    p { margin-left: 2em; }
-    .section { page-break-after: always; }
-  </style>
+    <meta charset="UTF-8">
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .document-title {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+        }
+        .subsection {
+            margin-bottom: 15px;
+        }
+        .subsection-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .subsection-content {
+            margin-left: 15px;
+            white-space: pre-line;
+        }
+        .empty-section {
+            color: #999;
+            font-style: italic;
+        }
+        .footer {
+            margin-top: 50px;
+            text-align: center;
+            font-size: 12px;
+            color: #999;
+            border-top: 1px solid #ddd;
+            padding-top: 10px;
+        }
+        .no-data {
+            color: #999;
+            font-style: italic;
+        }
+        .initial-message {
+            text-align: center;
+            margin: 50px 0;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+            font-style: italic;
+            color: #666;
+        }
+    </style>
 </head>
 <body>
-  <h1>{{ title }}</h1>
-  {% for sec in structure %}
-    <div class="section">
-      <h2>{{ sec.title }}</h2>
-      {% for sub in sec.subsections %}
-        <h3>{{ sub }}</h3>
-        <p>{{ sec['values'].get(sub, "") }}</p>
-      {% endfor %}
+    <div class="header">
+        <div class="document-title">{{ title }}</div>
+        <div class="document-id">Dokument ID: {{ document_id }}</div>
     </div>
-  {% endfor %}
+
+    {% if is_initial %}
+        <div class="initial-message">
+            <p>Dieses Dokument wurde soeben erstellt und enthält noch keine Inhalte.</p>
+            <p>Verwenden Sie die Konversation, um Informationen für die Dokumentsektionen zu sammeln.</p>
+        </div>
+    {% endif %}
+
+    {% for section in structure %}
+    <div class="section">
+        <div class="section-title">{{ section.title }}</div>
+        
+        {% if section.is_empty %}
+            <div class="empty-section">Keine Daten für diesen Abschnitt verfügbar.</div>
+        {% else %}
+            {% for subsec_name in section.subsections %}
+                <div class="subsection">
+                    <div class="subsection-title">{{ subsec_name }}</div>
+                    <div class="subsection-content">
+                        {% if section.content and subsec_name in section.content %}
+                            {% set subsec_value = section.content[subsec_name] %}
+                            {% if subsec_value %}
+                                {{ subsec_value }}
+                            {% else %}
+                                <span class="no-data">Kein Inhalt verfügbar</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="no-data">Kein Inhalt verfügbar</span>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+    {% endfor %}
+
+    <div class="footer">
+        {{ title }} Dokument
+    </div>
 </body>
 </html>

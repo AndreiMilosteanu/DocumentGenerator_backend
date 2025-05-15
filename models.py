@@ -69,3 +69,18 @@ class ActiveSubsection(Model):
     class Meta:
         table = "active_subsections"
         unique_together = (("document_id", "section", "subsection"),)
+
+class ApprovedSubsection(Model):
+    """
+    Tracks which subsections have been approved by the user for inclusion in the PDF.
+    """
+    id = fields.IntField(pk=True)
+    document = fields.ForeignKeyField("models.Document", related_name="approved_subsections")
+    section = fields.CharField(max_length=100)
+    subsection = fields.CharField(max_length=100)
+    approved_value = fields.TextField()  # Stores the approved text/value for this subsection
+    approved_at = fields.DatetimeField(auto_now=True, use_tz=False)  # Use naive datetime without timezone
+
+    class Meta:
+        table = "approved_subsections"
+        unique_together = (("document_id", "section", "subsection"),)

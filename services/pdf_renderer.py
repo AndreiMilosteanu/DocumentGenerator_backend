@@ -5,6 +5,8 @@ import pdfkit
 import logging
 from config import settings
 from templates.structure import DOCUMENT_STRUCTURE
+import json
+from datetime import datetime
 
 # Initialize Jinja2 environment
 templates_dir = Path(__file__).parent.parent / "templates"
@@ -13,6 +15,18 @@ env = Environment(
     autoescape=select_autoescape(["html", "xml"])
 )
 
+# Add custom filters
+def safe_str(value):
+    """Safely convert any value to string, including datetime objects"""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    elif value is None:
+        return ""
+    else:
+        return str(value)
+
+env.filters['safe_str'] = safe_str
+
 logger = logging.getLogger("pdf_renderer")
 
 def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
@@ -20,6 +34,18 @@ def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
     Render a PDF for the given document_id using the populated doc_data mapping.
     Uses wkhtmltopdf via pdfkit. Requires WKHTMLTOPDF_PATH in settings.
     Returns a BytesIO stream containing the PDF.
+    
+    The doc_data format is:
+    {
+        document_id: {
+            "_topic": "TopicName",
+            "_section_idx": 3,  # Number of sections with data
+            "Section Name": {
+                "Subsection1": "Value1",
+                "Subsection2": "Value2"
+            }
+        }
+    }
     """
     try:
         # 1. Validate and extract topic
@@ -27,7 +53,7 @@ def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
         if not entry:
             raise ValueError(f"No data found for document_id '{document_id}'")
         
-        logger.debug(f"Generating PDF for document {document_id}, entry: {entry.keys()}")
+        logger.debug(f"Generating PDF for document {document_id}, entry keys: {list(entry.keys())}")
         
         topic = entry.get('_topic')
         if topic not in DOCUMENT_STRUCTURE:
@@ -40,26 +66,76 @@ def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
             title = list(sec.keys())[0]
             subsections = sec[title]
             
+            # Debug: Log section and subsections
+            logger.debug(f"Processing section '{title}' with subsections: {subsections}")
+            
             # Get values for this section, handling both regular dicts and JSON objects
             values = entry.get(title, {}) or {}
             
-            # Log warnings if expected sections are missing
+            # Debug: Check values type
+            logger.debug(f"Values for section '{title}' is type {type(values)}: {values}")
+            
+            # Ensure values is a dict
+            if not isinstance(values, dict):
+                logger.warning(f"Values for section '{title}' is not a dict, got {type(values)}. Converting to empty dict.")
+                values = {}
+            
+            # Check if we have any data for this section
             if not values and title != 'Anhänge':  # Anhänge (attachments) might be empty
                 logger.warning(f"Section '{title}' has no data for document {document_id}")
+                # Add section with empty values
+                structure.append({
+                    'title': title,
+                    'subsections': subsections,
+                    'content': {subsec: "" for subsec in subsections},
+                    'has_data': False,
+                    'is_empty': True
+                })
+                continue
+            
+            # For sections with data, only include subsections that have values
+            subsection_data = {}
+            has_data = False
+            
+            for subsec in subsections:
+                # Get the value for this subsection
+                value = values.get(subsec, '')
+                if value is None:
+                    value = ''
                 
+                # Debug: Log subsection values
+                logger.debug(f"Subsection '{subsec}' has value of type {type(value)}")
+                
+                # Ensure value is a string
+                if not isinstance(value, str):
+                    logger.warning(f"Value for subsection '{subsec}' is not a string, got {type(value)}. Converting to string.")
+                    value = str(value)
+                
+                # Include all subsections, even empty ones
+                subsection_data[subsec] = value
+                if value and value.strip():  # Check if any have actual content
+                    has_data = True
+            
             structure.append({
                 'title': title,
                 'subsections': subsections,
-                'values': values
+                'content': subsection_data,
+                'has_data': has_data,
+                'is_empty': not has_data
             })
             
         logger.debug(f"Built structure with {len(structure)} sections")
+        
+        # Debug: Dump the complete structure data for inspection
+        logger.debug(f"Template structure: {json.dumps(structure, indent=2, default=str)}")
 
         # 3. Render HTML using Jinja2
         template = env.get_template('doc.html')
         html_content = template.render(
             title=topic,
-            structure=structure
+            structure=structure,
+            document_id=document_id,
+            is_initial=not any(sec.get('has_data', False) for sec in structure)
         )
         logger.debug(f"HTML content generated, length: {len(html_content)}")
 
@@ -77,7 +153,17 @@ def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
         logger.debug(f"Using wkhtmltopdf path: {wkhtml_path}")
 
         # 5. Convert HTML to PDF (returns bytes)
-        pdf_bytes = pdfkit.from_string(html_content, False, configuration=config)
+        pdf_options = {
+            'page-size': 'A4',
+            'margin-top': '20mm',
+            'margin-right': '20mm',
+            'margin-bottom': '20mm',
+            'margin-left': '20mm',
+            'encoding': 'UTF-8',
+            'no-outline': None,
+            'quiet': ''
+        }
+        pdf_bytes = pdfkit.from_string(html_content, False, configuration=config, options=pdf_options)
         pdf_io = BytesIO(pdf_bytes)
         pdf_io.seek(0)
         logger.debug(f"PDF generated successfully, size: {len(pdf_bytes)} bytes")
@@ -85,4 +171,5 @@ def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
         
     except Exception as e:
         logger.error(f"Error generating PDF for document {document_id}: {str(e)}")
+        logger.exception("PDF generation exception")
         raise

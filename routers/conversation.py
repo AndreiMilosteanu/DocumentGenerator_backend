@@ -3,9 +3,11 @@ from pydantic import BaseModel
 from typing import Dict, Any, Tuple, List, Optional
 import json, logging
 import openai
+from tortoise.exceptions import DoesNotExist
+from tortoise import Tortoise
 from config import settings
 from templates.structure import DOCUMENT_STRUCTURE
-from models import Document, SectionData, ChatMessage, ActiveSubsection
+from models import Document, SectionData, ChatMessage, ActiveSubsection, ApprovedSubsection
 
 router = APIRouter()
 logger = logging.getLogger("conversation")
@@ -33,6 +35,12 @@ class SubsectionInfo(BaseModel):
     section: str
     subsection: str
     has_conversation: bool
+
+class SubsectionApproval(BaseModel):
+    value: str
+
+class SimpleApproval(BaseModel):
+    pass  # No fields needed, just use section/subsection from URL
 
 async def _run_thread_and_parse(thread_id: str, topic: str) -> Tuple[Dict[str, Any], str]:
     """
@@ -102,6 +110,13 @@ async def _run_thread_and_parse(thread_id: str, topic: str) -> Tuple[Dict[str, A
         try:
             data = json.loads(json_part)
             logger.debug(f"Successfully parsed JSON data: {json.dumps(data, indent=2)}")
+            
+            # Validate data structure
+            for key, value in data.items():
+                logger.debug(f"Checking data key '{key}' with value type {type(value)}")
+                if not isinstance(value, dict):
+                    logger.warning(f"Data for section '{key}' is not a dictionary, it's {type(value)}. This may cause issues.")
+            
             # If we got valid JSON, set human part to second part (if exists)
             human = parts[1].strip() if len(parts) > 1 else ''
         except json.JSONDecodeError as e:
@@ -506,8 +521,17 @@ async def start_conversation(document_id: str, body: StartRequest):
     # persist section data and assistant message
     for sec_name, sec_data in data.items():
         if isinstance(sec_data, dict):
-            await SectionData.get_or_create(document=doc, section=sec_name, defaults={"data": sec_data})
-            await SectionData.filter(document=doc, section=sec_name).update(data=sec_data)
+            existing = await SectionData.filter(document=doc, section=sec_name).first()
+            if existing:
+                # Merge with existing data rather than overwriting
+                merged_data = existing.data
+                for subsec, value in sec_data.items():
+                    merged_data[subsec] = value
+                await SectionData.filter(document=doc, section=sec_name).update(data=merged_data)
+            else:
+                await SectionData.create(document=doc, section=sec_name, data=sec_data)
+        else:
+            logger.warning(f"Section '{sec_name}' data is not a dictionary, it's {type(sec_data)}. Skipping.")
     logger.debug(f"Saved {len(data)} section data items to DB")
     
     await ChatMessage.create(
@@ -723,6 +747,8 @@ async def reply_conversation(document_id: str, body: ReplyRequest):
                 await SectionData.filter(document=doc, section=sec_name).update(data=merged_data)
             else:
                 await SectionData.create(document=doc, section=sec_name, data=sec_data)
+        else:
+            logger.warning(f"Section '{sec_name}' data is not a dictionary, it's {type(sec_data)}. Skipping.")
     
     # Save assistant message with section context
     await ChatMessage.create(
@@ -784,7 +810,7 @@ async def debug_conversation(document_id: str):
     """
     try:
         doc = await Document.get(id=document_id)
-    except Document.DoesNotExist:
+    except DoesNotExist:
         raise HTTPException(status_code=404, detail="Document not found")
     
     # Get all messages
@@ -833,7 +859,7 @@ async def analyze_message_format(document_id: str, message_id: str = None):
     """
     try:
         doc = await Document.get(id=document_id)
-    except Document.DoesNotExist:
+    except DoesNotExist:
         raise HTTPException(status_code=404, detail="Document not found")
     
     if not doc.thread_id:
@@ -841,3 +867,264 @@ async def analyze_message_format(document_id: str, message_id: str = None):
     
     result = await _analyze_message_format(doc.thread_id, message_id)
     return result
+
+@router.post("/{document_id}/extract-and-approve/{section}/{subsection}")
+async def extract_and_approve_subsection(document_id: str, section: str, subsection: str):
+    """
+    Extract a subsection value from the conversation and approve it for the PDF.
+    """
+    try:
+        # Get document
+        doc = await Document.get(id=document_id)
+        
+        # Validate section and subsection against document structure
+        topic = doc.topic
+        if topic not in DOCUMENT_STRUCTURE:
+            raise HTTPException(status_code=400, detail=f"Unknown topic '{topic}'")
+            
+        section_valid = False
+        subsection_valid = False
+        
+        for sec_obj in DOCUMENT_STRUCTURE[topic]:
+            sec_name = list(sec_obj.keys())[0]
+            if sec_name == section:
+                section_valid = True
+                if subsection in sec_obj[sec_name]:
+                    subsection_valid = True
+                    break
+        
+        if not section_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid section '{section}' for topic '{topic}'")
+        
+        if not subsection_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid subsection '{subsection}' for section '{section}'")
+        
+        # Get the section data
+        section_data = await SectionData.filter(document=doc, section=section).first()
+        
+        if not section_data:
+            raise HTTPException(status_code=404, detail=f"No data found for section '{section}'")
+            
+        data = section_data.data
+        
+        if subsection not in data:
+            raise HTTPException(status_code=404, detail=f"No data found for subsection '{subsection}'")
+            
+        value = data[subsection]
+        
+        # Use direct SQL to avoid datetime issues
+        try:
+            conn = Tortoise.get_connection("default")
+            
+            # Check if record exists
+            query = """
+                SELECT id FROM approved_subsections 
+                WHERE document_id = $1 AND section = $2 AND subsection = $3;
+            """
+            result = await conn.execute_query(query, [str(doc.id), section, subsection])
+            
+            if result[1]:  # Record exists
+                # Update existing record
+                update_query = """
+                    UPDATE approved_subsections 
+                    SET approved_value = $4 
+                    WHERE document_id = $1 AND section = $2 AND subsection = $3;
+                """
+                await conn.execute_query(update_query, [str(doc.id), section, subsection, value])
+                logger.debug(f"Updated approval for {section}.{subsection}")
+            else:
+                # Insert new record
+                insert_query = """
+                    INSERT INTO approved_subsections(document_id, section, subsection, approved_value)
+                    VALUES($1, $2, $3, $4);
+                """
+                await conn.execute_query(insert_query, [str(doc.id), section, subsection, value])
+                logger.debug(f"Created approval for {section}.{subsection}")
+        except Exception as e:
+            logger.exception(f"Database error during approval: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        
+        # Return the result
+        return {
+            "document_id": document_id,
+            "section": section,
+            "subsection": subsection,
+            "value": value,
+            "approved": True
+        }
+        
+    except DoesNotExist:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+    except Exception as e:
+        logger.exception(f"Error approving subsection: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error approving subsection: {str(e)}")
+
+@router.post("/{document_id}/approve/{section}/{subsection}")
+async def approve_subsection_value(document_id: str, section: str, subsection: str, approval: SubsectionApproval):
+    """
+    Approve a specific value for a subsection.
+    """
+    try:
+        # Get document
+        doc = await Document.get(id=document_id)
+        
+        # Validate section and subsection against document structure
+        topic = doc.topic
+        if topic not in DOCUMENT_STRUCTURE:
+            raise HTTPException(status_code=400, detail=f"Unknown topic '{topic}'")
+            
+        section_valid = False
+        subsection_valid = False
+        
+        for sec_obj in DOCUMENT_STRUCTURE[topic]:
+            sec_name = list(sec_obj.keys())[0]
+            if sec_name == section:
+                section_valid = True
+                if subsection in sec_obj[sec_name]:
+                    subsection_valid = True
+                    break
+        
+        if not section_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid section '{section}' for topic '{topic}'")
+        
+        if not subsection_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid subsection '{subsection}' for section '{section}'")
+        
+        # Use direct SQL to avoid datetime issues
+        try:
+            conn = Tortoise.get_connection("default")
+            
+            # Check if record exists
+            query = """
+                SELECT id FROM approved_subsections 
+                WHERE document_id = $1 AND section = $2 AND subsection = $3;
+            """
+            result = await conn.execute_query(query, [str(doc.id), section, subsection])
+            
+            if result[1]:  # Record exists
+                # Update existing record
+                update_query = """
+                    UPDATE approved_subsections 
+                    SET approved_value = $4 
+                    WHERE document_id = $1 AND section = $2 AND subsection = $3;
+                """
+                await conn.execute_query(update_query, [str(doc.id), section, subsection, approval.value])
+                logger.debug(f"Updated approval for {section}.{subsection}")
+            else:
+                # Insert new record
+                insert_query = """
+                    INSERT INTO approved_subsections(document_id, section, subsection, approved_value)
+                    VALUES($1, $2, $3, $4);
+                """
+                await conn.execute_query(insert_query, [str(doc.id), section, subsection, approval.value])
+                logger.debug(f"Created approval for {section}.{subsection}")
+        except Exception as e:
+            logger.exception(f"Database error during approval: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        
+        # Return the result
+        return {
+            "document_id": document_id,
+            "section": section,
+            "subsection": subsection,
+            "value": approval.value,
+            "approved": True
+        }
+        
+    except DoesNotExist:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+    except Exception as e:
+        logger.exception(f"Error approving subsection: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error approving subsection: {str(e)}")
+
+@router.post("/{document_id}/simple-approve/{section}/{subsection}")
+async def simple_approve_subsection(document_id: str, section: str, subsection: str):
+    """
+    Simple endpoint to approve a subsection without requiring a value.
+    The value is automatically loaded from the section_data.
+    """
+    try:
+        # Get document
+        doc = await Document.get(id=document_id)
+        
+        # Validate section and subsection against document structure
+        topic = doc.topic
+        if topic not in DOCUMENT_STRUCTURE:
+            raise HTTPException(status_code=400, detail=f"Unknown topic '{topic}'")
+            
+        section_valid = False
+        subsection_valid = False
+        
+        for sec_obj in DOCUMENT_STRUCTURE[topic]:
+            sec_name = list(sec_obj.keys())[0]
+            if sec_name == section:
+                section_valid = True
+                if subsection in sec_obj[sec_name]:
+                    subsection_valid = True
+                    break
+        
+        if not section_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid section '{section}' for topic '{topic}'")
+        
+        if not subsection_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid subsection '{subsection}' for section '{section}'")
+        
+        # Get the section data
+        section_data = await SectionData.filter(document=doc, section=section).first()
+        
+        if not section_data:
+            raise HTTPException(status_code=404, detail=f"No data found for section '{section}'")
+            
+        data = section_data.data
+        
+        if subsection not in data:
+            raise HTTPException(status_code=404, detail=f"No data found for subsection '{subsection}'")
+            
+        value = data[subsection]
+        
+        # Use direct SQL to avoid datetime issues
+        try:
+            conn = Tortoise.get_connection("default")
+            
+            # Check if record exists
+            query = """
+                SELECT id FROM approved_subsections 
+                WHERE document_id = $1 AND section = $2 AND subsection = $3;
+            """
+            result = await conn.execute_query(query, [str(doc.id), section, subsection])
+            
+            if result[1]:  # Record exists
+                # Update existing record
+                update_query = """
+                    UPDATE approved_subsections 
+                    SET approved_value = $4 
+                    WHERE document_id = $1 AND section = $2 AND subsection = $3;
+                """
+                await conn.execute_query(update_query, [str(doc.id), section, subsection, value])
+                logger.debug(f"Updated approval for {section}.{subsection}")
+            else:
+                # Insert new record
+                insert_query = """
+                    INSERT INTO approved_subsections(document_id, section, subsection, approved_value)
+                    VALUES($1, $2, $3, $4);
+                """
+                await conn.execute_query(insert_query, [str(doc.id), section, subsection, value])
+                logger.debug(f"Created approval for {section}.{subsection}")
+        except Exception as e:
+            logger.exception(f"Database error during approval: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        
+        # Return the result
+        return {
+            "document_id": document_id,
+            "section": section,
+            "subsection": subsection,
+            "value": value,
+            "approved": True
+        }
+        
+    except DoesNotExist:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+    except Exception as e:
+        logger.exception(f"Error approving subsection: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error approving subsection: {str(e)}")

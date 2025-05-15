@@ -2,6 +2,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from tortoise.contrib.fastapi import register_tortoise
 from config import settings
+import logging
+
+# Configure logging to show debug logs
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+
+# Set log levels for specific loggers
+logging.getLogger("pdf_renderer").setLevel(logging.DEBUG)
+logging.getLogger("conversation").setLevel(logging.DEBUG)
+logging.getLogger("pdfgen").setLevel(logging.DEBUG)
+logging.getLogger("uvicorn").setLevel(logging.INFO)  # Keep uvicorn at INFO level to reduce noise
 
 app = FastAPI(
     title="Erdbaron Document Generator",

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, UUID4
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
 import uuid
+import httpx
 from models import Document, ChatMessage, SectionData, Project
 from templates.structure import DOCUMENT_STRUCTURE
 
@@ -183,9 +184,10 @@ async def delete_project(project_id: str):
     return {"success": True, "message": "Project deleted successfully"}
 
 @router.post("/create", response_model=ProjectCreationResponse)
-async def create_project(request: ProjectCreationRequest):
+async def create_project(background_tasks: BackgroundTasks, request: ProjectCreationRequest):
     """
     Create a new project with a name and topic, generating unique IDs.
+    Also initializes the document structure with empty sections/subsections.
     """
     # Validate topic
     topic = request.topic
@@ -211,6 +213,9 @@ async def create_project(request: ProjectCreationRequest):
     
     logger.info(f"Created new project: {request.name} (ID: {project_id}, Document ID: {document_id}, Topic: {topic})")
     
+    # Initialize document structure in the background
+    background_tasks.add_task(initialize_document_structure, document_id)
+    
     return ProjectCreationResponse(
         id=project_id,
         name=request.name,
@@ -218,6 +223,45 @@ async def create_project(request: ProjectCreationRequest):
         document_id=document_id,
         thread_id=doc.thread_id  # Will be None until conversation starts
     )
+
+async def initialize_document_structure(document_id: str):
+    """
+    Initialize the document structure with empty section data and create an initial PDF.
+    """
+    try:
+        # Get document
+        doc = await Document.get(id=document_id)
+        topic = doc.topic
+        
+        # Create empty section data for each section in the structure
+        for sec_obj in DOCUMENT_STRUCTURE[topic]:
+            section = list(sec_obj.keys())[0]
+            subsections = sec_obj[section]
+            
+            # Initialize empty data for each subsection
+            data = {subsec: "" for subsec in subsections}
+            
+            # Create section data
+            await SectionData.create(
+                document=doc,
+                section=section,
+                data=data
+            )
+        
+        # Generate an initial PDF using internal API call
+        async with httpx.AsyncClient() as client:
+            # Make a request to our own API to generate the PDF
+            # Always use approved_only=true to ensure only approved content is included
+            base_url = "http://localhost:8000"  # Adjust if your server runs on a different port
+            response = await client.get(f"{base_url}/documents/{document_id}/pdf?approved_only=true")
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to generate initial PDF for document {document_id}: {response.text}")
+            else:
+                logger.info(f"Successfully generated initial PDF for document {document_id}")
+                
+    except Exception as e:
+        logger.error(f"Error initializing document structure for {document_id}: {str(e)}")
 
 @router.get("/{project_id}/status", response_model=ProjectStatusResponse)
 async def get_project_status(project_id: str):
