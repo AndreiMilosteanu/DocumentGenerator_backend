@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     DATA_DIR: Path = Field(default=Path("./data"))
     ALLOWED_FILE_TYPES: List[str] = Field(default=[".pdf", ".docx", ".png", ".jpg", ".jpeg"])
     
+    # JWT settings
+    JWT_SECRET_KEY: str = Field(..., env="JWT_SECRET_KEY")
+    JWT_ALGORITHM: str = Field(default="HS256")
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30 * 24 * 60)  # 30 days
+    
     # Optional assistant IDs for specific topics
     DEKLARATIONSANALYSE_ASSISTANT_ID: Optional[str] = Field(default=None, env="DEKLARATIONSANALYSE_ASSISTANT_ID")
     BODENUNTERSUCHUNG_ASSISTANT_ID: Optional[str] = Field(default=None, env="BODENUNTERSUCHUNG_ASSISTANT_ID")

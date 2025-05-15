@@ -3,7 +3,7 @@ import logging
 import json
 from tortoise import Tortoise, connections
 from config import settings
-from models import Document, Project, SectionData, ChatMessage, ActiveSubsection, ApprovedSubsection
+from models import Document, Project, SectionData, ChatMessage, ActiveSubsection, ApprovedSubsection, User
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -35,7 +35,8 @@ async def check_and_create_tables():
         ("section_data", SectionData),
         ("chat_messages", ChatMessage),
         ("active_subsections", ActiveSubsection),
-        ("approved_subsections", ApprovedSubsection)
+        ("approved_subsections", ApprovedSubsection),
+        ("users", User)
     ]
     
     for table_name, model_class in models_check:
@@ -99,6 +100,25 @@ async def apply_column_migrations():
             await connection.execute_query(
                 "ALTER TABLE chat_messages ADD COLUMN file_path VARCHAR(255) NULL;"
             )
+    
+    # Add user_id column to projects if it doesn't exist
+    if "projects" in existing_tables:
+        # Check if columns exist
+        column_query = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'projects' 
+            AND table_schema = 'public';
+        """
+        columns_info = await connection.execute_query(column_query)
+        existing_columns = [row[0] for row in columns_info[1]]
+        
+        if "user_id" not in existing_columns:
+            logger.info("Adding user_id column to projects table")
+            await connection.execute_query(
+                "ALTER TABLE projects ADD COLUMN user_id UUID NULL REFERENCES users(id) ON DELETE SET NULL;"
+            )
+            logger.info("Added user_id column to projects table")
     
     logger.info("Column migrations completed")
 

@@ -15,9 +15,16 @@ logging.basicConfig(
 
 # Set log levels for specific loggers
 logging.getLogger("pdf_renderer").setLevel(logging.DEBUG)
-logging.getLogger("conversation").setLevel(logging.DEBUG)
+logging.getLogger("conversation").setLevel(logging.INFO)
 logging.getLogger("pdfgen").setLevel(logging.DEBUG)
 logging.getLogger("uvicorn").setLevel(logging.INFO)  # Keep uvicorn at INFO level to reduce noise
+
+# Disable Tortoise and database-related debug logs
+logging.getLogger("tortoise").setLevel(logging.WARNING)
+logging.getLogger("tortoise.db_client").setLevel(logging.WARNING)
+logging.getLogger("db").setLevel(logging.WARNING)
+logging.getLogger("asyncpg").setLevel(logging.WARNING)
+logging.getLogger("tortoise.backends").setLevel(logging.WARNING)
 
 app = FastAPI(
     title="Erdbaron Document Generator",
@@ -31,11 +38,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-from routers import upload, conversation, pdfgen, projects
+from routers import upload, conversation, pdfgen, projects, auth
 # app.include_router(upload.router, prefix="/upload", tags=["upload"])
 app.include_router(conversation.router, prefix="/conversation", tags=["conversation"])
 app.include_router(pdfgen.router, prefix="/documents", tags=["pdf"])
 app.include_router(projects.router, prefix="/projects", tags=["projects"])
+app.include_router(auth.router, prefix="/auth", tags=["authentication"])
 
 # Register Tortoise ORM
 register_tortoise(

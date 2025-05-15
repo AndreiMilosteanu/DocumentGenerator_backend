@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import StreamingResponse, FileResponse
 from io import BytesIO
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
@@ -9,8 +9,9 @@ from tortoise.exceptions import DoesNotExist
 from tortoise import Tortoise
 
 from services.pdf_renderer import render_pdf
-from models import Document, SectionData, ApprovedSubsection
+from models import Document, SectionData, ApprovedSubsection, User, Project
 from templates.structure import DOCUMENT_STRUCTURE
+from utils.auth import get_current_active_user, get_admin_user
 
 # Configure logger
 logger = logging.getLogger("pdfgen")
@@ -110,17 +111,43 @@ async def get_document_data(document_id: str, approved_only: bool = False) -> Di
         logger.error(f"Error retrieving document data: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving document data: {str(e)}")
 
+async def _check_document_access(document_id: str, user: User) -> Document:
+    """
+    Check if user has access to the document via a project.
+    Admin users have access to all documents.
+    Returns the document if access is allowed, otherwise raises HTTPException.
+    """
+    try:
+        doc = await Document.get(id=document_id)
+        
+        # Admin users have access to all documents
+        if user.role == "admin":
+            return doc
+            
+        # For regular users, check if they have a project with this document
+        project = await Project.filter(document_id=document_id, user=user).first()
+        if not project:
+            raise HTTPException(status_code=403, detail="Access denied to this document")
+            
+        return doc
+    except DoesNotExist:
+        raise HTTPException(status_code=404, detail="Document not found")
+
 @router.post("/{document_id}/approve", response_model=SubsectionApprovalResponse)
-async def approve_subsection(document_id: str, approval: SubsectionApproval):
+async def approve_subsection(
+    document_id: str, 
+    approval: SubsectionApproval,
+    current_user: User = Depends(get_current_active_user)
+):
     """
     Approve a subsection's content for inclusion in the PDF.
     This endpoint will use the existing section_data value for the subsection,
     not the value passed in the request (which might be the human readable message).
     """
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
+    
     try:
-        # Get document
-        doc = await Document.get(id=document_id)
-        
         # Validate section and subsection against document structure
         topic = doc.topic
         if topic not in DOCUMENT_STRUCTURE:
@@ -227,14 +254,17 @@ async def approve_subsection_batch(document_id: str, approvals: SubsectionApprov
     return results
 
 @router.get("/{document_id}/approved")
-async def get_approved_subsections(document_id: str):
+async def get_approved_subsections(
+    document_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
     """
     Get a list of all approved subsections for this document.
     """
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
+    
     try:
-        # Get document
-        doc = await Document.get(id=document_id)
-        
         # Use raw SQL query to avoid datetime issues
         conn = Tortoise.get_connection("default")
         query = """
@@ -261,13 +291,18 @@ async def get_approved_subsections(document_id: str):
         raise HTTPException(status_code=500, detail=f"Error retrieving approved subsections: {str(e)}")
 
 @router.get("/{document_id}/pdf")
-async def get_pdf(document_id: str, approved_only: bool = True):
+async def generate_pdf(
+    document_id: str, 
+    approved_only: bool = False, 
+    current_user: User = Depends(get_current_active_user)
+):
     """
-    Generate a PDF with document content.
+    Generate a PDF from the document structure and content.
+    If approved_only=true, then only show content that has been explicitly approved.
+    """
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
     
-    Parameters:
-    - approved_only: If True (default), only include subsections that have been explicitly approved
-    """
     logger.debug(f"PDF requested for document {document_id}, approved_only={approved_only}")
     
     # 1. Grab the collected data from database
@@ -347,20 +382,23 @@ async def download_pdf(document_id: str, approved_only: bool = True):
         raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
         
     # If not in DB, generate it
-    response = await get_pdf(document_id, approved_only=approved_only)
+    response = await generate_pdf(document_id, approved_only=approved_only)
     response.headers["Content-Disposition"] = f"attachment; filename=doc_{document_id}.pdf"
     return response
 
 @router.get("/{document_id}/current-data")
-async def get_current_data(document_id: str):
+async def get_current_data(
+    document_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
     """
     Get the current SectionData for a document.
     This is useful for showing what data could be approved.
     """
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
+    
     try:
-        # Get document
-        doc = await Document.get(id=document_id)
-        
         # Get all section data
         sections = await SectionData.filter(document=doc).all()
         
@@ -451,7 +489,7 @@ async def initialize_document_structure(document_id: str):
         
         # Generate an initial PDF with the structure - use approved_only=true to ensure it only shows approved content
         # For a new document, this will result in an empty PDF, which is expected
-        await get_pdf(document_id, approved_only=True)
+        await generate_pdf(document_id, approved_only=True)
         
         return {
             "document_id": document_id,
@@ -466,15 +504,19 @@ async def initialize_document_structure(document_id: str):
         raise HTTPException(status_code=500, detail=f"Error initializing document structure: {str(e)}")
 
 @router.post("/{document_id}/approve-simple", response_model=SubsectionApprovalResponse)
-async def approve_subsection_simple(document_id: str, approval: SimpleSubsectionApproval):
+async def approve_subsection_simple(
+    document_id: str, 
+    approval: SimpleSubsectionApproval,
+    current_user: User = Depends(get_current_active_user)
+):
     """
     Simplified endpoint to approve a subsection's content.
     Only requires section and subsection - the value is automatically loaded from section_data.
     """
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
+    
     try:
-        # Get document
-        doc = await Document.get(id=document_id)
-        
         # Validate section and subsection against document structure
         topic = doc.topic
         if topic not in DOCUMENT_STRUCTURE:

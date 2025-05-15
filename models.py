@@ -1,5 +1,29 @@
 from tortoise import fields
 from tortoise.models import Model
+from enum import Enum
+from typing import List, Optional
+
+class UserRole(str, Enum):
+    ADMIN = "admin"
+    USER = "user"
+
+class User(Model):
+    """
+    Represents a user in the system.
+    """
+    id = fields.UUIDField(pk=True)
+    email = fields.CharField(max_length=255, unique=True)
+    password_hash = fields.CharField(max_length=255)
+    role = fields.CharEnumField(UserRole, default=UserRole.USER)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    last_login = fields.DatetimeField(null=True)
+    is_active = fields.BooleanField(default=True)
+
+    class Meta:
+        table = "users"
+
+    def __str__(self):
+        return f"{self.email} ({self.role})"
 
 class Document(Model):
     """
@@ -22,6 +46,7 @@ class Project(Model):
     name = fields.CharField(max_length=255)
     document = fields.OneToOneField("models.Document", related_name="project")
     created_at = fields.DatetimeField(auto_now_add=True)
+    user = fields.ForeignKeyField("models.User", related_name="projects", null=True)
 
     class Meta:
         table = "projects"
