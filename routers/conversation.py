@@ -9,6 +9,7 @@ from config import settings
 from templates.structure import DOCUMENT_STRUCTURE
 from models import Document, SectionData, ChatMessage, ActiveSubsection, ApprovedSubsection, User, Project
 from utils.auth import get_current_active_user, get_admin_user
+from utils.file_upload import attach_pending_files_to_thread
 
 router = APIRouter()
 logger = logging.getLogger("conversation")
@@ -501,13 +502,23 @@ async def start_conversation(
         }
     
     # If new or no thread, create OpenAI thread
+    thread_created = False
     if created or not doc.thread_id:
         thread = openai.beta.threads.create()
         doc.thread_id = thread.id
         await doc.save()
         logger.debug(f"Created new thread with ID {thread.id}")
+        thread_created = True
+        
     thread_id = doc.thread_id
     logger.debug(f"Using thread ID {thread_id}")
+    
+    # If we just created the thread, attach any pending files
+    if thread_created:
+        logger.info(f"Attaching any pending files to new thread {thread_id}")
+        attached_files = await attach_pending_files_to_thread(doc)
+        if attached_files:
+            logger.info(f"Attached {len(attached_files)} files to thread {thread_id}")
     
     # Get the appropriate assistant ID for the topic
     assistant_id = settings.TOPIC_ASSISTANTS.get(topic)
@@ -584,19 +595,7 @@ async def start_conversation(
     logger.debug(f"Received data with {len(data)} keys and message of length {len(question)}")
     
     # persist section data and assistant message
-    for sec_name, sec_data in data.items():
-        if isinstance(sec_data, dict):
-            existing = await SectionData.filter(document=doc, section=sec_name).first()
-            if existing:
-                # Merge with existing data rather than overwriting
-                merged_data = existing.data
-                for subsec, value in sec_data.items():
-                    merged_data[subsec] = value
-                await SectionData.filter(document=doc, section=sec_name).update(data=merged_data)
-            else:
-                await SectionData.create(document=doc, section=sec_name, data=sec_data)
-        else:
-            logger.warning(f"Section '{sec_name}' data is not a dictionary, it's {type(sec_data)}. Skipping.")
+    await _update_section_data(doc, data)
     
     await ChatMessage.create(
         document=doc, 
@@ -656,11 +655,13 @@ async def start_subsection_conversation(
     await _set_active_subsection(document_id, request.section, request.subsection)
     
     # Check if thread exists, create one if needed
+    thread_created = False
     if not doc.thread_id:
         thread = openai.beta.threads.create()
         doc.thread_id = thread.id
         await doc.save()
         logger.debug(f"Created new thread with ID {thread.id}")
+        thread_created = True
     
     thread_id = doc.thread_id
     
@@ -736,16 +737,7 @@ async def start_subsection_conversation(
         )
         
         # Update section data if any was returned
-        for sec_name, sec_data in data.items():
-            if isinstance(sec_data, dict):
-                existing = await SectionData.filter(document=doc, section=sec_name).first()
-                if existing:
-                    # Merge new data with existing
-                    merged_data = existing.data
-                    merged_data.update(sec_data)
-                    await SectionData.filter(document=doc, section=sec_name).update(data=merged_data)
-                else:
-                    await SectionData.create(document=doc, section=sec_name, data=sec_data)
+        await _update_section_data(doc, data)
         
         return {
             "data": data,
@@ -807,19 +799,7 @@ async def reply_conversation(
     logger.debug(f"Received data with {len(data)} keys and message of length {len(question)}")
     
     # persist section data and assistant message
-    for sec_name, sec_data in data.items():
-        if isinstance(sec_data, dict):
-            existing = await SectionData.filter(document=doc, section=sec_name).first()
-            if existing:
-                # Merge with existing data rather than overwriting
-                merged_data = existing.data
-                for subsec, value in sec_data.items():
-                    merged_data[subsec] = value
-                await SectionData.filter(document=doc, section=sec_name).update(data=merged_data)
-            else:
-                await SectionData.create(document=doc, section=sec_name, data=sec_data)
-        else:
-            logger.warning(f"Section '{sec_name}' data is not a dictionary, it's {type(sec_data)}. Skipping.")
+    await _update_section_data(doc, data)
     
     # Save assistant message with section context
     await ChatMessage.create(
@@ -1199,3 +1179,28 @@ async def simple_approve_subsection(
         "value": value,
         "approved": True
     }
+
+async def _update_section_data(doc: Document, data: Dict[str, Any]) -> None:
+    """
+    Update section data based on the AI response.
+    This is used by both the conversation and file upload routers.
+    """
+    # Skip if no data provided
+    if not data:
+        logger.warning("No data to update from AI response")
+        return
+    
+    # Update or create section data records
+    for sec_name, sec_data in data.items():
+        if isinstance(sec_data, dict):
+            existing = await SectionData.filter(document=doc, section=sec_name).first()
+            if existing:
+                # Merge with existing data rather than overwriting
+                merged_data = existing.data
+                for subsec, value in sec_data.items():
+                    merged_data[subsec] = value
+                await SectionData.filter(document=doc, section=sec_name).update(data=merged_data)
+            else:
+                await SectionData.create(document=doc, section=sec_name, data=sec_data)
+        else:
+            logger.warning(f"Section '{sec_name}' data is not a dictionary, it's {type(sec_data)}. Skipping.")

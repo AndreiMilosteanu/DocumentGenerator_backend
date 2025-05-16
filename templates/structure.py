@@ -1,8 +1,7 @@
 DOCUMENT_STRUCTURE = {
     'Deklarationsanalyse': [
-        {'Projekt Details':    ['Standort', 'Auftraggeber']},
-        {'Projekt Objectives': ['Ziele', 'Anforderungen']},
-        {'Anhänge':            ['Dokumente', 'Bilder']}
+        {'Deckblatt':    ['Projekt', 'Auftraggeber', 'Dienstleistungsnummer', 'Probenahmedatum']},
+        {'Stellungnahme': ['Probenahmeprotokoll', 'Laborberichte', 'Auswertung']}
     ],
     'Bodenuntersuchung': [
         {'Projekt Details':    ['Untersuchungsmethoden', 'Probenentnahme']},
@@ -20,3 +19,14 @@ DOCUMENT_STRUCTURE = {
         {'Anhänge':            ['Messprotokolle', 'Diagramme']}
     ]
 }
+
+# Save the current structure to a file for debugging
+import json
+import os
+
+# Print structure contents to a debug file
+try:
+    with open(os.path.join(os.path.dirname(__file__), 'structure_debug.txt'), 'w') as f:
+        f.write(json.dumps(DOCUMENT_STRUCTURE, indent=2))
+except Exception as e:
+    print(f"Error writing debug file: {e}")

@@ -109,3 +109,34 @@ class ApprovedSubsection(Model):
     class Meta:
         table = "approved_subsections"
         unique_together = (("document_id", "section", "subsection"),)
+
+class FileUploadStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    READY = "ready"
+    ERROR = "error"
+
+class FileUpload(Model):
+    """
+    Tracks files uploaded to OpenAI and associated with documents/conversations.
+    """
+    id = fields.UUIDField(pk=True)
+    document = fields.ForeignKeyField("models.Document", related_name="file_uploads")
+    user = fields.ForeignKeyField("models.User", related_name="file_uploads")
+    original_filename = fields.CharField(max_length=255)
+    openai_file_id = fields.CharField(max_length=255)
+    file_size = fields.IntField()
+    file_type = fields.CharField(max_length=50)
+    status = fields.CharEnumField(FileUploadStatus, default=FileUploadStatus.PENDING)
+    error_message = fields.TextField(null=True)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    
+    # Optional message association (for files added during conversation)
+    associated_message = fields.ForeignKeyField("models.ChatMessage", related_name="files", null=True)
+    
+    # Track current section/subsection when file was uploaded
+    section = fields.CharField(max_length=100, null=True)
+    subsection = fields.CharField(max_length=100, null=True)
+
+    class Meta:
+        table = "file_uploads"

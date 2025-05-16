@@ -1,0 +1,79 @@
+{
+  "Deklarationsanalyse": [
+    {
+      "Deckblatt": [
+        "Projekt",
+        "Auftraggeber",
+        "Dienstleistungsnummer",
+        "Probenahmedatum"
+      ]
+    },
+    {
+      "Stellungnahme": [
+        "Probenahmeprotokoll",
+        "Laborberichte",
+        "Auswertung"
+      ]
+    }
+  ],
+  "Bodenuntersuchung": [
+    {
+      "Projekt Details": [
+        "Untersuchungsmethoden",
+        "Probenentnahme"
+      ]
+    },
+    {
+      "Projekt Objectives": [
+        "Bodenbeschaffenheit",
+        "Analyseergebnisse"
+      ]
+    },
+    {
+      "Anh\u00e4nge": [
+        "Laborberichte",
+        "Fotos"
+      ]
+    }
+  ],
+  "Baugrundgutachten": [
+    {
+      "Projekt Details": [
+        "Grundst\u00fccksdaten",
+        "Bauvorhaben"
+      ]
+    },
+    {
+      "Projekt Objectives": [
+        "Bewertung",
+        "Empfehlungen"
+      ]
+    },
+    {
+      "Anh\u00e4nge": [
+        "Gutachten",
+        "Pl\u00e4ne"
+      ]
+    }
+  ],
+  "Plattendruckversuch": [
+    {
+      "Projekt Details": [
+        "Versuchsaufbau",
+        "Durchf\u00fchrung"
+      ]
+    },
+    {
+      "Projekt Objectives": [
+        "Messergebnisse",
+        "Auswertung"
+      ]
+    },
+    {
+      "Anh\u00e4nge": [
+        "Messprotokolle",
+        "Diagramme"
+      ]
+    }
+  ]
+}

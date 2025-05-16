@@ -81,7 +81,7 @@ def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
                 values = {}
             
             # Check if we have any data for this section
-            if not values and title != 'Anhänge':  # Anhänge (attachments) might be empty
+            if not values and title != 'Anhänge' and title != 'Deckblatt':  # Anhänge (attachments) and Deckblatt might be empty
                 logger.warning(f"Section '{title}' has no data for document {document_id}")
                 # Add section with empty values
                 structure.append({

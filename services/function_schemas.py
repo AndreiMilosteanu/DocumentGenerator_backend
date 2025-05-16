@@ -2,7 +2,38 @@
 # JSON schema definitions for each section's function calling
 
 SECTION_FUNCTIONS = {
-    # Common 'Projekt Details' section across topics
+    # 'Deckblatt' section for Deklarationsanalyse
+    "Deckblatt": {
+        "name": "fill_deckblatt",
+        "description": "Populate the Deckblatt (cover page) section for the document.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "Projekt": {"type": "string", "description": "Project name or identifier"},
+                "Auftraggeber": {"type": "string", "description": "Client name"},
+                "Dienstleistungsnummer": {"type": "string", "description": "Service number"},
+                "Probenahmedatum": {"type": "string", "description": "Date of sampling"}
+            },
+            "required": []
+        }
+    },
+
+    # 'Stellungnahme' section for Deklarationsanalyse
+    "Stellungnahme": {
+        "name": "fill_stellungnahme",
+        "description": "Populate the Stellungnahme (statement) section with assessment information.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "Probenahmeprotokoll": {"type": "string", "description": "Sampling protocol details"},
+                "Laborberichte": {"type": "string", "description": "Laboratory report summary"},
+                "Auswertung": {"type": "string", "description": "Evaluation and conclusions"}
+            },
+            "required": []
+        }
+    },
+
+    # Common 'Projekt Details' section for other document types
     "Projekt Details": {
         "name": "fill_projekt_details",
         "description": "Populate the Projekt Details section for the document.",
@@ -22,7 +53,7 @@ SECTION_FUNCTIONS = {
         }
     },
 
-    # Common 'Projekt Objectives' section across topics
+    # Common 'Projekt Objectives' section for other document types
     "Projekt Objectives": {
         "name": "fill_projekt_objectives",
         "description": "Populate the Projekt Objectives section with goals and requirements.",
@@ -42,7 +73,7 @@ SECTION_FUNCTIONS = {
         }
     },
 
-    # Common 'Anhänge' section across topics
+    # Common 'Anhänge' section for other document types
     "Anhänge": {
         "name": "fill_anhaenge",
         "description": "Populate the Anhänge section with document attachments and images.",

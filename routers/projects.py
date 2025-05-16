@@ -1,13 +1,16 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, UploadFile, File, Form
 from pydantic import BaseModel, UUID4
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
 import uuid
 import httpx
-from models import Document, ChatMessage, SectionData, Project, User, UserRole
+import json
+from models import Document, ChatMessage, SectionData, Project, User, UserRole, FileUpload
 from templates.structure import DOCUMENT_STRUCTURE
 from utils.auth import get_current_active_user, get_admin_user
+from utils.file_upload import process_file_upload, FileUploadError
+import openai
 
 router = APIRouter()
 logger = logging.getLogger("projects")
@@ -227,20 +230,21 @@ async def create_project(
     Create a new project with a name and topic, generating unique IDs.
     Also initializes the document structure with empty sections/subsections.
     The project is associated with the current user.
+    
+    Note: File uploads are handled separately after project creation and thread initialization.
     """
     # Validate topic
-    topic = request.topic
-    if topic not in DOCUMENT_STRUCTURE:
-        raise HTTPException(status_code=400, detail=f"Unknown topic '{topic}'")
+    if request.topic not in DOCUMENT_STRUCTURE:
+        raise HTTPException(status_code=400, detail=f"Unknown topic '{request.topic}'")
     
     # Generate unique IDs
     project_id = str(uuid.uuid4())
     document_id = str(uuid.uuid4())
     
-    # Create the document record first
+    # Create the document record first (thread_id will be set when conversation starts)
     doc = await Document.create(
         id=document_id,
-        topic=topic
+        topic=request.topic
     )
     
     # Create the project record that references the document and the user
@@ -251,7 +255,7 @@ async def create_project(
         user=current_user
     )
     
-    logger.info(f"Created new project: {request.name} (ID: {project_id}, Document ID: {document_id}, Topic: {topic})")
+    logger.info(f"Created new project: {request.name} (ID: {project_id}, Document ID: {document_id}, Topic: {request.topic})")
     
     # Initialize document structure in the background
     background_tasks.add_task(initialize_document_structure, document_id)
@@ -259,7 +263,7 @@ async def create_project(
     return ProjectCreationResponse(
         id=project_id,
         name=request.name,
-        topic=topic,
+        topic=request.topic,
         document_id=document_id,
         thread_id=doc.thread_id  # Will be None until conversation starts
     )

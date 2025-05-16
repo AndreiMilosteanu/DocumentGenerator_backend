@@ -212,7 +212,7 @@ async def handle_complex_migrations():
                     # For migration purposes, we'll use a simpler approach
                     update_query = """
                         UPDATE chat_messages
-                        SET section = 'Projekt Details', subsection = 'Standort'
+                        SET section = 'Deckblatt', subsection = 'Projekt'
                         WHERE document_id = $1 AND (section IS NULL OR subsection IS NULL);
                     """
                     await connection.execute_query(update_query, [doc_id])

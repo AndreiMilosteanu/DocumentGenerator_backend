@@ -550,7 +550,18 @@ async def approve_subsection_simple(
             
         # Get the correct value from section_data
         correct_value = data[approval.subsection]
-        logger.debug(f"Using value from section_data for {approval.section}.{approval.subsection}: {correct_value[:50]}...")
+        
+        # Safely handle logging to prevent slicing errors
+        if correct_value is not None:
+            # Only try to slice if it's a string and has content
+            if isinstance(correct_value, str) and len(correct_value) > 0:
+                preview = correct_value[:50] + "..." if len(correct_value) > 50 else correct_value
+                logger.debug(f"Using value from section_data for {approval.section}.{approval.subsection}: {preview}")
+            else:
+                logger.debug(f"Using value from section_data for {approval.section}.{approval.subsection}: {type(correct_value)}")
+        else:
+            logger.debug(f"Using NULL value from section_data for {approval.section}.{approval.subsection}")
+            correct_value = ""  # Ensure it's not None for database operations
         
         try:
             # Use a direct SQL query to avoid datetime issues

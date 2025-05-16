@@ -18,6 +18,8 @@ logging.getLogger("pdf_renderer").setLevel(logging.DEBUG)
 logging.getLogger("conversation").setLevel(logging.INFO)
 logging.getLogger("pdfgen").setLevel(logging.DEBUG)
 logging.getLogger("uvicorn").setLevel(logging.INFO)  # Keep uvicorn at INFO level to reduce noise
+logging.getLogger("file_upload").setLevel(logging.DEBUG)  # Set file upload logger to DEBUG
+logging.getLogger("upload").setLevel(logging.DEBUG)  # Set upload router logger to DEBUG
 
 # Disable Tortoise and database-related debug logs
 logging.getLogger("tortoise").setLevel(logging.WARNING)
@@ -39,7 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 from routers import upload, conversation, pdfgen, projects, auth
-# app.include_router(upload.router, prefix="/upload", tags=["upload"])
+app.include_router(upload.router, prefix="/upload", tags=["upload"])
 app.include_router(conversation.router, prefix="/conversation", tags=["conversation"])
 app.include_router(pdfgen.router, prefix="/documents", tags=["pdf"])
 app.include_router(projects.router, prefix="/projects", tags=["projects"])
