@@ -4,6 +4,12 @@ uvicorn==0.27.1
 python-dotenv==1.0.1
 pydantic==2.6.1
 pydantic-settings==2.1.0
+email-validator==2.1.0  # Required for email validation in Pydantic models
+
+# Authentication
+python-jose[cryptography]==3.3.0  # For JWT
+passlib[bcrypt]==1.7.4  # For password hashing
+python-multipart==0.0.7  # For form data parsing
 
 # OpenAI integration
 openai==1.12.0
@@ -17,10 +23,14 @@ typer==0.9.0  # CLI tool for Aerich
 # PDF generation
 pdfkit==1.0.0
 jinja2==3.1.3
+wkhtmltopdf-binary==0.12.6  # Binary package of wkhtmltopdf (optional)
 
 # CORS and HTTP
 starlette==0.36.3
 httpx==0.26.0
+
+# File handling
+python-magic==0.4.27  # For file type detection (optional)
 
 # Optional testing tools
 pytest==7.4.3
