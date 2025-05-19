@@ -10,8 +10,9 @@ openai==1.12.0
 
 # Database and ORM
 tortoise-orm==0.20.0
-aerich==0.7.2  # For database migrations (optional)
+aerich==0.7.2  # For database migrations
 asyncpg==0.29.0  # PostgreSQL driver
+typer==0.9.0  # CLI tool for Aerich
 
 # PDF generation
 pdfkit==1.0.0

@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from tortoise.contrib.fastapi import register_tortoise
-from config import settings
 import logging
+from db_config import TORTOISE_ORM
 
 # Configure logging to show debug logs
 logging.basicConfig(
@@ -47,12 +47,11 @@ app.include_router(pdfgen.router, prefix="/documents", tags=["pdf"])
 app.include_router(projects.router, prefix="/projects", tags=["projects"])
 app.include_router(auth.router, prefix="/auth", tags=["authentication"])
 
-# Register Tortoise ORM
+# Register Tortoise ORM using the config from db_config.py
 register_tortoise(
     app,
-    db_url=settings.DATABASE_URL,
-    modules={"models": ["models"]},
-    generate_schemas=True,
+    config=TORTOISE_ORM,
+    generate_schemas=False,  # Don't generate schemas - let Aerich handle migrations
     add_exception_handlers=True,
 )
 
