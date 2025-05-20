@@ -28,7 +28,7 @@ def migrate(name: str = "update"):
 def upgrade():
     """Apply all pending migrations"""
     print("Applying pending migrations...")
-    asyncio.run(command.upgrade())
+    asyncio.run(command.upgrade(run_in_transaction=True))
     
 @app.command()
 def downgrade(version: str = None):

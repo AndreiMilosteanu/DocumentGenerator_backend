@@ -71,6 +71,25 @@ async def apply_column_migrations():
     tables = await connection.execute_query(query)
     existing_tables = [row[0] for row in tables[1]]
     
+    # Add file_data column to file_uploads if it doesn't exist
+    if "file_uploads" in existing_tables:
+        # Check if column exists
+        column_query = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'file_uploads' 
+            AND table_schema = 'public';
+        """
+        columns_info = await connection.execute_query(column_query)
+        existing_columns = [row[0] for row in columns_info[1]]
+        
+        if "file_data" not in existing_columns:
+            logger.info("Adding file_data column to file_uploads table")
+            await connection.execute_query(
+                "ALTER TABLE file_uploads ADD COLUMN file_data BYTEA NULL;"
+            )
+            logger.info("Added file_data column to file_uploads table")
+    
     # Add section and subsection columns to chat_messages if they don't exist
     if "chat_messages" in existing_tables:
         # Check if columns exist
@@ -271,6 +290,21 @@ async def verify_migration():
             "subsection": "character varying",
             "approved_value": "text",
             "approved_at": "timestamp without time zone"
+        },
+        "file_uploads": {
+            "id": "uuid",
+            "document_id": "uuid",
+            "user_id": "uuid",
+            "original_filename": "character varying",
+            "openai_file_id": "character varying",
+            "file_size": "integer",
+            "file_type": "character varying",
+            "status": "character varying",
+            "created_at": "timestamp without time zone",
+            "error_message": "text",
+            "section": "character varying",
+            "subsection": "character varying",
+            "file_data": "bytea"
         }
     }
     
@@ -336,7 +370,8 @@ async def verify_migration():
         "section_data": [("document_id", "documents", "id")],
         "chat_messages": [("document_id", "documents", "id")],
         "active_subsections": [("document_id", "documents", "id")],
-        "approved_subsections": [("document_id", "documents", "id")]
+        "approved_subsections": [("document_id", "documents", "id")],
+        "file_uploads": [("document_id", "documents", "id"), ("user_id", "users", "id")]
     }
     
     for table_name, expected_relations in expected_fks.items():
