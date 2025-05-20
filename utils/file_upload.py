@@ -353,4 +353,152 @@ async def extract_file_content(file_content: bytes, filename: str) -> str:
     
     except Exception as e:
         logger.error(f"Error extracting content from file {filename}: {str(e)}")
-        return f"[Error extracting content from '{filename}': {str(e)}]" 
+        return f"[Error extracting content from '{filename}': {str(e)}]"
+
+async def extract_document_data_from_file(file_content: bytes, filename: str, topic: str) -> Dict[str, Dict[str, str]]:
+    """
+    Analyze file content and extract structured data that matches the document structure for the given topic.
+    This uses OpenAI to intelligently parse the file content and map it to the document structure.
+    
+    Returns a dictionary where:
+    - Keys are section names
+    - Values are dictionaries mapping subsection names to extracted content
+    
+    Example:
+    {
+        "Allgemeines und Bauvorhaben": {
+            "Anlass und Vorgaben": "Extracted content...",
+            "Geländeverhältnisse und Bauwerk": "More extracted content..."
+        }
+    }
+    """
+    from templates.structure import DOCUMENT_STRUCTURE
+    
+    # Get the document structure for this topic
+    if topic not in DOCUMENT_STRUCTURE:
+        logger.warning(f"Unknown topic: {topic}, cannot extract structured data")
+        return {}
+    
+    topic_structure = DOCUMENT_STRUCTURE[topic]
+    
+    # Extract the raw text content from the file
+    logger.info(f"Extracting content from file: {filename} for topic: {topic}")
+    raw_content = await extract_file_content(file_content, filename)
+    
+    if not raw_content or (raw_content.startswith('[') and ']' in raw_content and len(raw_content.split()) < 10):
+        # This indicates an error or unsupported file
+        logger.warning(f"Could not extract meaningful text content from file: {filename}")
+        return {}
+    
+    logger.info(f"Successfully extracted {len(raw_content)} characters from file")
+    
+    # Create a structured representation of the document structure
+    structure_description = []
+    for section_obj in topic_structure:
+        section_name = list(section_obj.keys())[0]
+        subsections = section_obj[section_name]
+        section_info = {
+            "section": section_name,
+            "subsections": subsections
+        }
+        structure_description.append(section_info)
+    
+    try:
+        # Create OpenAI client instance
+        client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        
+        # Define the system prompt with much clearer instructions
+        system_prompt = """
+        You are an expert document analyzer specialized in technical documents. Your task is to extract structured information 
+        from the provided document and organize it according to a predefined structure.
+        
+        IMPORTANT INSTRUCTIONS:
+        1. You will receive raw text content extracted from a document (PDF, DOCX, etc.)
+        2. You will also receive a structured template with sections and subsections
+        3. Your job is to EXTRACT ACTUAL INFORMATION from the document that matches each section/subsection
+        4. Do NOT return empty values or placeholder messages if you find relevant content
+        5. Do NOT say "No data extracted" or similar messages
+        6. EXTRACT THE ACTUAL DATA from the document for each section where possible
+        7. If there truly is no information for a section, leave it as an empty string
+        
+        For each section and subsection in the template:
+        - Search the entire document for relevant information
+        - Extract complete, meaningful content (multiple sentences where appropriate)
+        - Maintain technical details, measurements, and specific terminology
+        - Format the extracted text properly (paragraphs, line breaks, etc.)
+        
+        Return ONLY a JSON object with this structure:
+        {
+            "SectionName1": {
+                "Subsection1A": "Actual extracted content...",
+                "Subsection1B": "More extracted content..."
+            },
+            "SectionName2": {
+                "Subsection2A": "Technical content extracted from document..."
+            }
+        }
+        
+        Remember, I need you to extract ACTUAL INFORMATION from the document - DO NOT create generic template text or placeholders.
+        """
+        
+        # Create the user prompt with more explicit instructions
+        user_prompt = f"""
+        Please analyze this document content and extract information according to the structure below.
+        Extract ACTUAL INFORMATION from the content - do not provide placeholders or empty responses where information exists.
+        
+        DOCUMENT STRUCTURE:
+        {json.dumps(structure_description, indent=2)}
+        
+        DOCUMENT CONTENT:
+        ```
+        {raw_content[:75000]}  # Expanded content limit
+        ```
+        
+        For each section and subsection in the structure, extract any relevant information found in the document content.
+        Return a JSON object structured exactly like the template (matching the section and subsection names precisely).
+        
+        For any section where you find information, extract the ACTUAL DATA from the document - not just placeholders.
+        Only return empty strings for sections where NO information exists in the document.
+        """
+        
+        logger.info(f"Sending extracted content to GPT model for structured analysis")
+        
+        # Make the request to OpenAI, ensuring the model has sufficient tokens
+        response = client.chat.completions.create(
+            model=settings.GPT_MODEL,  # Use the model specified in config
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.0,  # Keep it deterministic
+            response_format={"type": "json_object"}  # Ensure JSON response
+        )
+        
+        # Extract the response text
+        result_text = response.choices[0].message.content
+        
+        # Parse the JSON response
+        try:
+            extracted_data = json.loads(result_text)
+            total_sections = len(extracted_data)
+            total_content = sum(len(str(v)) for v in extracted_data.values())
+            
+            logger.info(f"Successfully extracted structured data: {total_sections} sections with {total_content} characters of content")
+            
+            # Debug log a sample of extracted data
+            for section, data in extracted_data.items():
+                for subsection, content in data.items():
+                    if content and len(content.strip()) > 0:
+                        preview = content[:100] + "..." if len(content) > 100 else content
+                        logger.info(f"Extracted content for {section}.{subsection}: {preview}")
+            
+            return extracted_data
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            logger.error(f"Response text: {result_text[:500]}...")
+            return {}
+            
+    except Exception as e:
+        logger.error(f"Error extracting structured data from file {filename}: {str(e)}")
+        logger.exception("Extraction error details:")
+        return {} 

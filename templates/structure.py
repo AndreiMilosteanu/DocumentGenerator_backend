@@ -10,9 +10,14 @@ DOCUMENT_STRUCTURE = {
         {'Anhänge':            ['Laborberichte', 'Fotos']}
     ],
     'Baugrundgutachten': [
-        {'Projekt Details':    ['Grundstücksdaten', 'Bauvorhaben']},
-        {'Projekt Objectives': ['Bewertung', 'Empfehlungen']},
-        {'Anhänge':            ['Gutachten', 'Pläne']}
+        {'Allgemeines und Bauvorhaben': ['Anlass und Vorgaben', 'Geländeverhältnisse und Bauwerk', 'Geotechnische Kategorie', 'Geologie', 'Standortbezogene Gefährdungszonen']},
+        {'Feldarbeiten': ['Geotechnische Untersuchungen', 'Untergrundverhältnisse', 'Grundwasserverhältnisse', 'Wasserdurchlässigkeit der Böden']},
+        {'Bodenkennwerte und Klassifikation': ['Geotechnische Kennwerte', 'Bodenklassifikation und Homogenbereiche']},
+        {'Gründungsempfehlung': ['Baugrundbeurteilung', 'Einzel- und Streifenfundamente', 'Fundamentplatte', 'Allgemeine Vorgaben für alle Gründungsvarianten', 'Angaben zur Bemessung der Gründung']},
+        {'Wasserbeanspruchung und Abdichtung': ['Wasserbeanspruchung und Abdichtung']},
+        {'Bauausführung': ['Herstellen der Baugrube', 'Wiedereinbau von anfallendem Bodenaushub', 'Entsorgung von Bodenaushub', 'Hinweise']},
+        {'Schlussbemerkung': ['Schlussbemerkung']},
+        {'Anhänge': ['Gutachten', 'Pläne']}
     ],
     'Plattendruckversuch': [
         {'Projekt Details':    ['Versuchsaufbau', 'Durchführung']},

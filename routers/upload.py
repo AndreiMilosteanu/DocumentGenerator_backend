@@ -6,9 +6,10 @@ import logging
 from pydantic import BaseModel, UUID4
 from models import Document, User, FileUpload, FileUploadStatus, ChatMessage, SectionData
 from utils.auth import get_current_active_user
-from utils.file_upload import process_file_upload, FileUploadError, delete_openai_file, extract_file_content
+from utils.file_upload import process_file_upload, FileUploadError, delete_openai_file, extract_file_content, extract_document_data_from_file
 from utils.rate_limiter import RateLimiter
 from templates.structure import DOCUMENT_STRUCTURE
+import json
 
 router = APIRouter()
 logger = logging.getLogger("upload")
@@ -101,6 +102,132 @@ async def append_file_to_document_attachments(document: Document, file_upload: F
     
     logger.info(f"Added file content from {file_upload.id} to {attachment_section}.{subsection} for document {document.id}")
 
+async def process_assistant_response(document_id: str, thread_id: str, topic: str, section: str, subsection: str):
+    """
+    Process the assistant's response to a file upload.
+    This is run as a background task.
+    """
+    try:
+        import openai
+        from routers.conversation import _run_thread_and_parse, _send_format_correction, _update_section_data
+        from templates.structure import DOCUMENT_STRUCTURE
+        
+        # Build a structured representation of the full document template
+        structure_description = []
+        if topic in DOCUMENT_STRUCTURE:
+            for section_obj in DOCUMENT_STRUCTURE[topic]:
+                section_name = list(section_obj.keys())[0]
+                subsections = section_obj[section_name]
+                structure_description.append({
+                    "section": section_name,
+                    "subsections": subsections
+                })
+        
+        # Create a comprehensive file analysis prompt
+        file_analysis_prompt = f"""
+        I've uploaded a file for you to analyze. Please examine the content thoroughly and extract ALL relevant information 
+        that could be used to populate our document structure. Don't limit yourself to any specific section - instead,
+        identify information that fits anywhere in our document template.
+
+        Our document structure for topic '{topic}' is:
+        {json.dumps(structure_description, indent=2)}
+
+        For each section and subsection where you find relevant information in the file, please extract and structure it.
+        Your response should include JSON data organized according to our document structure, along with a summary of 
+        what you found.
+
+        Remember to follow the required format by returning valid JSON data along with your human response.
+        """
+        
+        # Send the instruction to the thread
+        openai.beta.threads.messages.create(
+            thread_id=thread_id,
+            role="user",
+            content=file_analysis_prompt
+        )
+        
+        # Run the assistant to process the file
+        data, message = await _run_thread_and_parse(thread_id, topic)
+        
+        # If no data was returned, try sending a format correction
+        if not data and message:
+            await _send_format_correction(thread_id, topic)
+            data, message = await _run_thread_and_parse(thread_id, topic)
+        
+        # Get document
+        doc = await Document.get(id=document_id)
+        
+        # Save the instruction message
+        await ChatMessage.create(
+            document=doc,
+            role="user",
+            content=file_analysis_prompt,
+            section=section,
+            subsection=subsection
+        )
+        
+        # Save the assistant's response
+        await ChatMessage.create(
+            document=doc,
+            role="assistant",
+            content=message,
+            section=section,
+            subsection=subsection
+        )
+        
+        # Update section data
+        await _update_section_data(doc, data)
+        
+        logger.info(f"Processed assistant response for file upload in document {document_id}")
+    
+    except Exception as e:
+        logger.error(f"Error processing assistant response for file upload: {str(e)}")
+
+async def update_document_with_extracted_data(document: Document, file_content: bytes, filename: str):
+    """
+    Extract structured data from the file and update document sections accordingly.
+    This function analyzes the file content and populates the document structure with relevant information.
+    """
+    from routers.conversation import _update_section_data
+    
+    try:
+        # Extract structured data from the file content based on document topic
+        logger.info(f"Starting document data extraction for file '{filename}' with topic '{document.topic}'")
+        extracted_data = await extract_document_data_from_file(file_content, filename, document.topic)
+        
+        if not extracted_data:
+            logger.warning(f"No structured data could be extracted from file {filename}")
+            return
+        
+        # Log what we extracted
+        sections_with_content = 0
+        subsections_with_content = 0
+        
+        for section, subsections in extracted_data.items():
+            section_has_content = False
+            for subsection, content in subsections.items():
+                if content and len(content.strip()) > 0:
+                    subsections_with_content += 1
+                    section_has_content = True
+                    logger.info(f"Extracted content for {section}.{subsection}: {len(content)} characters")
+            
+            if section_has_content:
+                sections_with_content += 1
+        
+        if sections_with_content == 0:
+            logger.warning(f"Document data extraction completed but no actual content was found in any section")
+            return
+            
+        logger.info(f"Document data extraction found content in {sections_with_content} sections and {subsections_with_content} subsections")
+            
+        # Update the document sections with the extracted data
+        await _update_section_data(document, extracted_data)
+        
+        logger.info(f"Successfully updated document {document.id} with data extracted from {filename}")
+    except Exception as e:
+        logger.error(f"Error updating document with extracted data: {str(e)}")
+        logger.exception("Error details:")
+
 @router.post("/{document_id}/file", response_model=FileUploadResponse)
 async def upload_file(
     document_id: str,
@@ -111,7 +238,7 @@ async def upload_file(
 ):
     """
     Upload a file to be associated with a document and attached to its OpenAI thread.
-    The file will be merged into the final PDF but its content won't be extracted to the document's text.
+    The file will be analyzed and its content used to populate the document structure.
     """
     # Check rate limit
     allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
@@ -153,8 +280,8 @@ async def upload_file(
             # In case the file_data field is not yet available in the database
             logger.warning(f"Could not save file_data: {str(e)}. Field may not exist in database yet.")
         
-        # No longer appending file content to document's attachment section
-        # This keeps the PDF merging functionality without adding the text content
+        # NEW: Extract data from file and update document sections
+        await update_document_with_extracted_data(doc, file_content, file.filename)
         
         # Create response
         return FileUploadResponse(
@@ -185,7 +312,7 @@ async def upload_file_to_message(
 ):
     """
     Upload a file and create a message in the conversation referencing it.
-    The file will be merged into the final PDF but its content won't be extracted to the document's text.
+    The file content will be analyzed and used to populate the document structure.
     """
     # Check rate limit
     allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
@@ -220,11 +347,17 @@ async def upload_file_to_message(
         # Read file content
         file_content = await file.read()
         
+        # If no message provided, create a default message that encourages the assistant to analyze the file
+        if not message:
+            message = f"""I've uploaded a file: {file.filename}. 
+Please analyze this file thoroughly and extract all relevant information to populate our document structure. 
+Don't limit yourself to any specific section - look for data that could fit anywhere in our template."""
+        
         # Create the message first
         chat_message = await ChatMessage.create(
             document=doc,
             role="user",
-            content=message or f"Uploaded file: {file.filename}",
+            content=message,
             section=section,
             subsection=subsection
         )
@@ -251,6 +384,9 @@ async def upload_file_to_message(
             # In case the file_data field is not yet available in the database
             logger.warning(f"Could not save file_data: {str(e)}. Field may not exist in database yet.")
         
+        # NEW: Extract data from file and update document sections
+        await update_document_with_extracted_data(doc, file_content, file.filename)
+        
         # Schedule the assistant to process the file in the background
         background_tasks.add_task(process_assistant_response, doc.id, doc.thread_id, doc.topic, section, subsection)
         
@@ -272,42 +408,6 @@ async def upload_file_to_message(
     except Exception as e:
         logger.error(f"Unexpected error in file upload with message: {str(e)}")
         raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
-
-async def process_assistant_response(document_id: str, thread_id: str, topic: str, section: str, subsection: str):
-    """
-    Process the assistant's response to a file upload.
-    This is run as a background task.
-    """
-    try:
-        from routers.conversation import _run_thread_and_parse, _send_format_correction, _update_section_data
-        
-        # Run the assistant to process the file
-        data, message = await _run_thread_and_parse(thread_id, topic)
-        
-        # If no data was returned, try sending a format correction
-        if not data and message:
-            await _send_format_correction(thread_id, topic)
-            data, message = await _run_thread_and_parse(thread_id, topic)
-        
-        # Get document
-        doc = await Document.get(id=document_id)
-        
-        # Save the assistant's response
-        await ChatMessage.create(
-            document=doc,
-            role="assistant",
-            content=message,
-            section=section,
-            subsection=subsection
-        )
-        
-        # Update section data
-        await _update_section_data(doc, data)
-        
-        logger.info(f"Processed assistant response for file upload in document {document_id}")
-    
-    except Exception as e:
-        logger.error(f"Error processing assistant response for file upload: {str(e)}")
 
 @router.get("/{document_id}/files", response_model=FileListResponse)
 async def list_document_files(

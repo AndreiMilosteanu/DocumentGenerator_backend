@@ -43,15 +43,53 @@
   ],
   "Baugrundgutachten": [
     {
-      "Projekt Details": [
-        "Grundst\u00fccksdaten",
-        "Bauvorhaben"
+      "Allgemeines und Bauvorhaben": [
+        "Anlass und Vorgaben",
+        "Gel\u00e4ndeverh\u00e4ltnisse und Bauwerk",
+        "Geotechnische Kategorie",
+        "Geologie",
+        "Standortbezogene Gef\u00e4hrdungszonen"
       ]
     },
     {
-      "Projekt Objectives": [
-        "Bewertung",
-        "Empfehlungen"
+      "Feldarbeiten": [
+        "Geotechnische Untersuchungen",
+        "Untergrundverh\u00e4ltnisse",
+        "Grundwasserverh\u00e4ltnisse",
+        "Wasserdurchl\u00e4ssigkeit der B\u00f6den"
+      ]
+    },
+    {
+      "Bodenkennwerte und Klassifikation": [
+        "Geotechnische Kennwerte",
+        "Bodenklassifikation und Homogenbereiche"
+      ]
+    },
+    {
+      "Gr\u00fcndungsempfehlung": [
+        "Baugrundbeurteilung",
+        "Einzel- und Streifenfundamente",
+        "Fundamentplatte",
+        "Allgemeine Vorgaben f\u00fcr alle Gr\u00fcndungsvarianten",
+        "Angaben zur Bemessung der Gr\u00fcndung"
+      ]
+    },
+    {
+      "Wasserbeanspruchung und Abdichtung": [
+        "Wasserbeanspruchung und Abdichtung"
+      ]
+    },
+    {
+      "Bauausf\u00fchrung": [
+        "Herstellen der Baugrube",
+        "Wiedereinbau von anfallendem Bodenaushub",
+        "Entsorgung von Bodenaushub",
+        "Hinweise"
+      ]
+    },
+    {
+      "Schlussbemerkung": [
+        "Schlussbemerkung"
       ]
     },
     {

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
     DATA_DIR: Path = Field(default=Path("./data"))
     ALLOWED_FILE_TYPES: List[str] = Field(default=[".pdf", ".docx", ".png", ".jpg", ".jpeg"])
+    GPT_MODEL: str = Field(default="gpt-4-turbo", env="GPT_MODEL")  # Default to GPT-4 Turbo for better extraction capabilities
     
     # JWT settings
     JWT_SECRET_KEY: str = Field(..., env="JWT_SECRET_KEY")
