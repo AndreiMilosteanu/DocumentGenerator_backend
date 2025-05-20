@@ -8,6 +8,10 @@ from typing import List, Optional, Dict, Any, BinaryIO, Tuple, Union
 import openai
 from config import settings
 from models import FileUpload, Document, User, FileUploadStatus
+import PyPDF2
+import docx
+import json
+import io
 
 logger = logging.getLogger("file_upload")
 
@@ -211,6 +215,7 @@ async def process_file_upload(
     file_ext = os.path.splitext(filename)[1].lower()
     mime_type, _ = mimetypes.guess_type(filename)
     
+    # Create initial record without file_data to avoid errors if field does not exist yet
     file_upload = await FileUpload.create(
         id=uuid.uuid4(),
         document=document,
@@ -223,6 +228,13 @@ async def process_file_upload(
         section=section,
         subsection=subsection
     )
+    
+    # Try to add file_data field
+    try:
+        file_upload.file_data = file_content
+        await file_upload.save()
+    except Exception as e:
+        logger.warning(f"Could not save file_data: {str(e)}. Field may not exist in database yet.")
     
     temp_path = None
     try:
@@ -273,4 +285,72 @@ async def attach_pending_files_to_thread(document: Document) -> List[str]:
     Returns an empty list as no pending files should exist.
     """
     logger.info(f"attach_pending_files_to_thread called for document {document.id}, but no action needed as files are only uploaded after thread creation")
-    return [] 
+    return []
+
+async def extract_file_content(file_content: bytes, filename: str) -> str:
+    """
+    Extract text content from uploaded files based on file type.
+    
+    Currently supports:
+    - PDF
+    - DOCX
+    - TXT
+    - CSV
+    - JSON
+    
+    For unsupported formats like images, returns a placeholder message.
+    """
+    file_ext = os.path.splitext(filename)[1].lower()
+    
+    try:
+        # Extract content based on file type
+        if file_ext == '.pdf':
+            # Handle PDF files
+            with io.BytesIO(file_content) as pdf_file:
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                text = ""
+                for page_num in range(len(pdf_reader.pages)):
+                    page = pdf_reader.pages[page_num]
+                    text += page.extract_text() + "\n\n"
+                if not text.strip():
+                    return f"[PDF file '{filename}' - No extractable text content]"
+                return text
+                
+        elif file_ext == '.docx':
+            # Handle DOCX files
+            with io.BytesIO(file_content) as docx_file:
+                doc = docx.Document(docx_file)
+                return "\n".join([paragraph.text for paragraph in doc.paragraphs])
+                
+        elif file_ext in ['.txt', '.csv']:
+            # Handle text files
+            try:
+                return file_content.decode('utf-8')
+            except UnicodeDecodeError:
+                # Try other common encodings
+                for encoding in ['latin-1', 'windows-1252', 'iso-8859-1']:
+                    try:
+                        return file_content.decode(encoding)
+                    except UnicodeDecodeError:
+                        continue
+                return f"[Text file '{filename}' - Unable to decode content]"
+                
+        elif file_ext == '.json':
+            # Handle JSON files
+            try:
+                json_data = json.loads(file_content)
+                return json.dumps(json_data, indent=2)
+            except json.JSONDecodeError:
+                return f"[JSON file '{filename}' - Invalid JSON content]"
+                
+        else:
+            # Unsupported file types (images, etc.)
+            mime_type, _ = mimetypes.guess_type(filename)
+            if mime_type and mime_type.startswith('image/'):
+                return f"[Image file '{filename}' - Content cannot be displayed in text format]"
+            else:
+                return f"[File '{filename}' - Content cannot be displayed]"
+    
+    except Exception as e:
+        logger.error(f"Error extracting content from file {filename}: {str(e)}")
+        return f"[Error extracting content from '{filename}': {str(e)}]" 

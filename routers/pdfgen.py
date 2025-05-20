@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse, FileResponse
 from io import BytesIO
 from pydantic import BaseModel
@@ -8,7 +8,7 @@ import logging
 from tortoise.exceptions import DoesNotExist
 from tortoise import Tortoise
 
-from services.pdf_renderer import render_pdf
+from services.pdf_renderer import render_pdf, render_pdf_with_attachments
 from models import Document, SectionData, ApprovedSubsection, User, Project
 from templates.structure import DOCUMENT_STRUCTURE
 from utils.auth import get_current_active_user, get_admin_user
@@ -181,6 +181,27 @@ async def approve_subsection(
             
         # Get the correct value from section_data, not from the request
         correct_value = data[approval.subsection]
+        
+        # Format the value for human readability
+        if isinstance(correct_value, dict):
+            # Format dictionary into a readable string with each key-value pair on a new line
+            formatted_value = ""
+            for key, val in correct_value.items():
+                formatted_value += f"{key}: {val}\n"
+            correct_value = formatted_value.rstrip("\n")  # Remove trailing newline
+            logger.info(f"Formatted dictionary value for {approval.section}.{approval.subsection}")
+        elif isinstance(correct_value, list):
+            # Format list into a bulleted list
+            formatted_value = ""
+            for item in correct_value:
+                formatted_value += f"• {item}\n"
+            correct_value = formatted_value.rstrip("\n")  # Remove trailing newline
+            logger.info(f"Formatted list value for {approval.section}.{approval.subsection}")
+        elif correct_value is None:
+            correct_value = ""
+        else:
+            correct_value = str(correct_value)
+            
         logger.debug(f"Using value from section_data for {approval.section}.{approval.subsection}: {correct_value[:50]}...")
         
         try:
@@ -293,17 +314,19 @@ async def get_approved_subsections(
 @router.get("/{document_id}/pdf")
 async def generate_pdf(
     document_id: str, 
-    approved_only: bool = False, 
+    approved_only: bool = False,
+    include_attachments: bool = True,
     current_user: User = Depends(get_current_active_user)
 ):
     """
     Generate a PDF from the document structure and content.
     If approved_only=true, then only show content that has been explicitly approved.
+    If include_attachments=true, uploaded files will be appended to the PDF.
     """
     # Check if user has access to this document
     doc = await _check_document_access(document_id, current_user)
     
-    logger.debug(f"PDF requested for document {document_id}, approved_only={approved_only}")
+    logger.debug(f"PDF requested for document {document_id}, approved_only={approved_only}, include_attachments={include_attachments}")
     
     # 1. Grab the collected data from database
     doc_data = {}
@@ -342,7 +365,13 @@ async def generate_pdf(
     # 2. Render the PDF
     try:
         logger.debug(f"Starting PDF rendering for document {document_id}")
-        pdf_io: BytesIO = render_pdf(document_id, doc_data)
+        
+        if include_attachments:
+            # Use the new function that merges attachments
+            pdf_io: BytesIO = await render_pdf_with_attachments(document_id, doc_data)
+        else:
+            # Use the original function without attachments
+            pdf_io: BytesIO = render_pdf(document_id, doc_data)
         
         # Store the PDF in the database
         logger.debug(f"PDF rendered successfully, saving to database")
@@ -363,26 +392,24 @@ async def generate_pdf(
     return StreamingResponse(pdf_io, media_type="application/pdf")
 
 @router.get("/{document_id}/download")
-async def download_pdf(document_id: str, approved_only: bool = True):
+async def download_pdf(
+    document_id: str, 
+    approved_only: bool = True,
+    include_attachments: bool = True,
+    current_user: User = Depends(get_current_active_user)
+):
     """
     Download a PDF with document content.
     
     Parameters:
     - approved_only: If True (default), only include subsections that have been explicitly approved
+    - include_attachments: If True (default), include uploaded files in the PDF
     """
-    # Try to get PDF from database first
-    try:
-        doc = await Document.get(id=document_id)
-        if doc.pdf_data:
-            pdf_io = BytesIO(doc.pdf_data)
-            response = StreamingResponse(pdf_io, media_type="application/pdf")
-            response.headers["Content-Disposition"] = f"attachment; filename=doc_{document_id}.pdf"
-            return response
-    except DoesNotExist:
-        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
-        
-    # If not in DB, generate it
-    response = await generate_pdf(document_id, approved_only=approved_only)
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
+    
+    # Generate a fresh PDF to ensure the latest formatting is applied
+    response = await generate_pdf(document_id, approved_only=approved_only, include_attachments=include_attachments)
     response.headers["Content-Disposition"] = f"attachment; filename=doc_{document_id}.pdf"
     return response
 
@@ -551,17 +578,32 @@ async def approve_subsection_simple(
         # Get the correct value from section_data
         correct_value = data[approval.subsection]
         
-        # Safely handle logging to prevent slicing errors
-        if correct_value is not None:
-            # Only try to slice if it's a string and has content
-            if isinstance(correct_value, str) and len(correct_value) > 0:
-                preview = correct_value[:50] + "..." if len(correct_value) > 50 else correct_value
-                logger.debug(f"Using value from section_data for {approval.section}.{approval.subsection}: {preview}")
-            else:
-                logger.debug(f"Using value from section_data for {approval.section}.{approval.subsection}: {type(correct_value)}")
+        # Format the value for human readability
+        if isinstance(correct_value, dict):
+            # Format dictionary into a readable string with each key-value pair on a new line
+            formatted_value = ""
+            for key, val in correct_value.items():
+                formatted_value += f"{key}: {val}\n"
+            correct_value = formatted_value.rstrip("\n")  # Remove trailing newline
+            logger.info(f"Formatted dictionary value for {approval.section}.{approval.subsection}")
+        elif isinstance(correct_value, list):
+            # Format list into a bulleted list
+            formatted_value = ""
+            for item in correct_value:
+                formatted_value += f"• {item}\n"
+            correct_value = formatted_value.rstrip("\n")  # Remove trailing newline
+            logger.info(f"Formatted list value for {approval.section}.{approval.subsection}")
+        elif correct_value is None:
+            correct_value = ""
         else:
-            logger.debug(f"Using NULL value from section_data for {approval.section}.{approval.subsection}")
-            correct_value = ""  # Ensure it's not None for database operations
+            correct_value = str(correct_value)
+        
+        # Safely handle logging to prevent slicing errors
+        if correct_value:
+            preview = correct_value[:50] + "..." if len(correct_value) > 50 else correct_value
+            logger.debug(f"Using value from section_data for {approval.section}.{approval.subsection}: {preview}")
+        else:
+            logger.debug(f"Using empty value for {approval.section}.{approval.subsection}")
         
         try:
             # Use a direct SQL query to avoid datetime issues

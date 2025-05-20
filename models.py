@@ -121,12 +121,12 @@ class FileUpload(Model):
     Tracks files uploaded to OpenAI and associated with documents/conversations.
     """
     id = fields.UUIDField(pk=True)
-    document = fields.ForeignKeyField("models.Document", related_name="file_uploads")
-    user = fields.ForeignKeyField("models.User", related_name="file_uploads")
+    document = fields.ForeignKeyField("models.Document", related_name="files")
+    user = fields.ForeignKeyField("models.User", related_name="uploads")
     original_filename = fields.CharField(max_length=255)
-    openai_file_id = fields.CharField(max_length=255)
+    openai_file_id = fields.CharField(max_length=255, null=True)
     file_size = fields.IntField()
-    file_type = fields.CharField(max_length=50)
+    file_type = fields.CharField(max_length=100)
     status = fields.CharEnumField(FileUploadStatus, default=FileUploadStatus.PENDING)
     error_message = fields.TextField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
@@ -137,6 +137,7 @@ class FileUpload(Model):
     # Track current section/subsection when file was uploaded
     section = fields.CharField(max_length=100, null=True)
     subsection = fields.CharField(max_length=100, null=True)
+    file_data = fields.BinaryField(null=True)  # Store binary file data for PDF merging
 
     class Meta:
         table = "file_uploads"

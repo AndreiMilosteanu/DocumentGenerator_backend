@@ -20,10 +20,12 @@ aerich==0.7.2  # For database migrations
 asyncpg==0.29.0  # PostgreSQL driver
 typer==0.9.0  # CLI tool for Aerich
 
-# PDF generation
+# PDF generation and manipulation
 pdfkit==1.0.0
 jinja2==3.1.3
 wkhtmltopdf-binary==0.12.6  # Binary package of wkhtmltopdf (optional)
+PyPDF2==3.0.1  # For PDF merging and text extraction
+python-docx==1.0.1  # For DOCX text extraction
 
 # CORS and HTTP
 starlette==0.36.3

@@ -4,9 +4,11 @@ from typing import List, Optional
 import uuid
 import logging
 from pydantic import BaseModel, UUID4
-from models import Document, User, FileUpload, FileUploadStatus, ChatMessage
+from models import Document, User, FileUpload, FileUploadStatus, ChatMessage, SectionData
 from utils.auth import get_current_active_user
-from utils.file_upload import process_file_upload, FileUploadError, delete_openai_file
+from utils.file_upload import process_file_upload, FileUploadError, delete_openai_file, extract_file_content
+from utils.rate_limiter import RateLimiter
+from templates.structure import DOCUMENT_STRUCTURE
 
 router = APIRouter()
 logger = logging.getLogger("upload")
@@ -26,6 +28,79 @@ class FileListResponse(BaseModel):
     files: List[FileUploadResponse]
     count: int
 
+async def append_file_to_document_attachments(document: Document, file_upload: FileUpload, file_content: bytes) -> None:
+    """
+    Append the file information to the document's attachment section.
+    This will add the file to either the "Anlage" or "Anhänge" section depending on the document structure.
+    The actual file content will be extracted and included in the section.
+    """
+    topic = document.topic
+    if topic not in DOCUMENT_STRUCTURE:
+        logger.warning(f"Unknown topic: {topic}, cannot add file to attachments")
+        return
+
+    # Find the attachment section name based on the document structure
+    attachment_section = None
+    for sec_obj in DOCUMENT_STRUCTURE[topic]:
+        section_name = list(sec_obj.keys())[0]
+        if section_name in ["Anlage", "Anhänge", "Anlagen"]:
+            attachment_section = section_name
+            break
+
+    if not attachment_section:
+        logger.warning(f"No attachment section found for topic {topic}")
+        return
+
+    # Get or create the section data
+    section_data, created = await SectionData.get_or_create(
+        document=document,
+        section=attachment_section,
+        defaults={"data": {}}
+    )
+
+    data = section_data.data
+    if not isinstance(data, dict):
+        data = {}
+
+    # Find subsection for file attachments in the structure
+    subsection = None
+    for sec_obj in DOCUMENT_STRUCTURE[topic]:
+        section_name = list(sec_obj.keys())[0]
+        if section_name == attachment_section:
+            subsections = sec_obj[section_name]
+            # Use the first subsection for simplicity - we can refine this later if needed
+            if subsections:
+                subsection = subsections[0]
+                break
+
+    if not subsection:
+        logger.warning(f"No subsection found in {attachment_section} section for topic {topic}")
+        return
+
+    # Extract content from file
+    file_text = await extract_file_content(file_content, file_upload.original_filename)
+    
+    # Append file content to the subsection
+    current_content = data.get(subsection, "")
+    if current_content and not current_content.endswith('\n'):
+        current_content += "\n\n"
+    
+    # Format the new file content with a header
+    formatted_content = f"--- {file_upload.original_filename} ---\n\n{file_text}\n\n"
+    
+    # Append to existing content
+    if current_content:
+        new_content = current_content + formatted_content
+    else:
+        new_content = formatted_content
+    
+    # Update the section data
+    data[subsection] = new_content
+    section_data.data = data
+    await section_data.save()
+    
+    logger.info(f"Added file content from {file_upload.id} to {attachment_section}.{subsection} for document {document.id}")
+
 @router.post("/{document_id}/file", response_model=FileUploadResponse)
 async def upload_file(
     document_id: str,
@@ -36,7 +111,13 @@ async def upload_file(
 ):
     """
     Upload a file to be associated with a document and attached to its OpenAI thread.
+    The file will be merged into the final PDF but its content won't be extracted to the document's text.
     """
+    # Check rate limit
+    allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=error_msg)
+    
     try:
         # Get document
         try:
@@ -63,6 +144,17 @@ async def upload_file(
             section=section,
             subsection=subsection
         )
+        
+        # Keep a copy of the file content for PDF generation
+        try:
+            file_upload.file_data = file_content
+            await file_upload.save()
+        except Exception as e:
+            # In case the file_data field is not yet available in the database
+            logger.warning(f"Could not save file_data: {str(e)}. Field may not exist in database yet.")
+        
+        # No longer appending file content to document's attachment section
+        # This keeps the PDF merging functionality without adding the text content
         
         # Create response
         return FileUploadResponse(
@@ -93,8 +185,13 @@ async def upload_file_to_message(
 ):
     """
     Upload a file and create a message in the conversation referencing it.
-    This is for adding files mid-conversation.
+    The file will be merged into the final PDF but its content won't be extracted to the document's text.
     """
+    # Check rate limit
+    allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=error_msg)
+    
     try:
         # Get document
         try:
@@ -145,6 +242,14 @@ async def upload_file_to_message(
         # Associate the file with the message
         file_upload.associated_message = chat_message
         await file_upload.save()
+        
+        # Keep a copy of the file content for PDF merging
+        try:
+            file_upload.file_data = file_content
+            await file_upload.save()
+        except Exception as e:
+            # In case the file_data field is not yet available in the database
+            logger.warning(f"Could not save file_data: {str(e)}. Field may not exist in database yet.")
         
         # Schedule the assistant to process the file in the background
         background_tasks.add_task(process_assistant_response, doc.id, doc.thread_id, doc.topic, section, subsection)
@@ -336,3 +441,74 @@ async def get_file_status(
     except Exception as e:
         logger.error(f"Error getting file status: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get file status: {str(e)}")
+
+@router.get("/{document_id}/attachment-files")
+async def get_attachment_files(
+    document_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get the list of files that have been added to the document's attachment section.
+    This represents what will appear in the PDF's Anhänge section.
+    """
+    try:
+        # Get document
+        try:
+            doc = await Document.get(id=document_id)
+        except Document.DoesNotExist:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        # Check user access to document
+        if current_user.role != "admin":
+            # For regular users, check if they have a project with this document
+            project = await doc.project.filter(user=current_user).first()
+            if not project:
+                raise HTTPException(status_code=403, detail="Access denied to this document")
+        
+        # Find the attachment section name based on the document structure
+        topic = doc.topic
+        attachment_section = None
+        attachment_content = ""
+        
+        for sec_obj in DOCUMENT_STRUCTURE[topic]:
+            section_name = list(sec_obj.keys())[0]
+            if section_name in ["Anlage", "Anhänge", "Anlagen"]:
+                attachment_section = section_name
+                break
+        
+        if attachment_section:
+            # Get section data
+            section_data = await SectionData.filter(document=doc, section=attachment_section).first()
+            if section_data:
+                data = section_data.data
+                
+                # Find the first subsection with content
+                for sec_obj in DOCUMENT_STRUCTURE[topic]:
+                    section_name = list(sec_obj.keys())[0]
+                    if section_name == attachment_section:
+                        subsections = sec_obj[section_name]
+                        for subsection in subsections:
+                            if subsection in data and data[subsection]:
+                                attachment_content = data[subsection]
+                                break
+                        break
+        
+        # Parse the content to extract filenames
+        files = []
+        if attachment_content:
+            lines = attachment_content.split('\n')
+            for line in lines:
+                line = line.strip()
+                if line.startswith('- '):
+                    filename = line[2:].strip()
+                    files.append(filename)
+        
+        return {
+            "document_id": document_id,
+            "attachment_section": attachment_section,
+            "files": files
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting attachment files: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get attachment files: {str(e)}")

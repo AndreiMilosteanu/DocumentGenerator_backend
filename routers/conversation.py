@@ -10,6 +10,7 @@ from templates.structure import DOCUMENT_STRUCTURE
 from models import Document, SectionData, ChatMessage, ActiveSubsection, ApprovedSubsection, User, Project
 from utils.auth import get_current_active_user, get_admin_user
 from utils.file_upload import attach_pending_files_to_thread
+from utils.rate_limiter import RateLimiter
 
 router = APIRouter()
 logger = logging.getLogger("conversation")
@@ -44,10 +45,16 @@ class SubsectionApproval(BaseModel):
 class SimpleApproval(BaseModel):
     pass  # No fields needed, just use section/subsection from URL
 
-async def _run_thread_and_parse(thread_id: str, topic: str) -> Tuple[Dict[str, Any], str]:
+async def _run_thread_and_parse(thread_id: str, topic: str, user: User = None) -> Tuple[Dict[str, Any], str]:
     """
     Executes the assistant run on an existing thread, returns parsed JSON data and human reply.
     """
+    # Check rate limit if user is provided
+    if user:
+        allowed, error_msg = await RateLimiter.check_rate_limit(user)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=error_msg)
+    
     # Get the appropriate assistant ID for the topic
     assistant_id = settings.TOPIC_ASSISTANTS.get(topic)
     
@@ -445,6 +452,11 @@ async def start_conversation(
     body: StartRequest,
     current_user: User = Depends(get_current_active_user)
 ):
+    # Check rate limit
+    allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=error_msg)
+    
     logger.debug(f"Starting conversation for document {document_id} with topic {body.topic}")
     
     # Check if user has access to this document
@@ -583,14 +595,14 @@ async def start_conversation(
     
     # run assistant and parse
     logger.debug("Running assistant and parsing response...")
-    data, question = await _run_thread_and_parse(thread_id, topic)
+    data, question = await _run_thread_and_parse(thread_id, topic, current_user)
     
     # Check if we got valid data - if not, try to send a format correction
     if not data and question:
         logger.warning("No valid JSON data found in assistant's response. Sending format correction.")
         await _send_format_correction(thread_id, doc.topic)
         # Try again after correction
-        data, question = await _run_thread_and_parse(thread_id, topic)
+        data, question = await _run_thread_and_parse(thread_id, topic, current_user)
     
     logger.debug(f"Received data with {len(data)} keys and message of length {len(question)}")
     
@@ -725,7 +737,7 @@ async def start_subsection_conversation(
         )
         
         # Get response from assistant
-        data, message = await _run_thread_and_parse(thread_id, topic)
+        data, message = await _run_thread_and_parse(thread_id, topic, current_user)
         
         # Save assistant response
         await ChatMessage.create(
@@ -752,6 +764,11 @@ async def reply_conversation(
     body: ReplyRequest,
     current_user: User = Depends(get_current_active_user)
 ):
+    # Check rate limit
+    allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=error_msg)
+    
     logger.debug(f"Processing reply for document {document_id}")
     
     # Check if user has access to this document
@@ -787,14 +804,14 @@ async def reply_conversation(
     
     # run assistant and parse
     logger.debug("Running assistant and parsing response...")
-    data, question = await _run_thread_and_parse(thread_id, doc.topic)
+    data, question = await _run_thread_and_parse(thread_id, doc.topic, current_user)
     
     # Check if we got valid data - if not, try to send a format correction
     if not data and question:
         logger.warning("No valid JSON data found in assistant's response. Sending format correction.")
         await _send_format_correction(thread_id, doc.topic)
         # Try again after correction
-        data, question = await _run_thread_and_parse(thread_id, doc.topic)
+        data, question = await _run_thread_and_parse(thread_id, doc.topic, current_user)
     
     logger.debug(f"Received data with {len(data)} keys and message of length {len(question)}")
     
@@ -972,6 +989,26 @@ async def extract_and_approve_subsection(
             
     value = data[subsection]
     
+    # Format the value for human readability
+    if isinstance(value, dict):
+        # Format dictionary into a readable string with each key-value pair on a new line
+        formatted_value = ""
+        for key, val in value.items():
+            formatted_value += f"{key}: {val}\n"
+        value = formatted_value.rstrip("\n")  # Remove trailing newline
+        logger.info(f"Formatted dictionary value for {section}.{subsection}")
+    elif isinstance(value, list):
+        # Format list into a bulleted list
+        formatted_value = ""
+        for item in value:
+            formatted_value += f"• {item}\n"
+        value = formatted_value.rstrip("\n")  # Remove trailing newline
+        logger.info(f"Formatted list value for {section}.{subsection}")
+    elif value is None:
+        value = ""
+    else:
+        value = str(value)
+    
     # Use direct SQL to avoid datetime issues
     try:
         conn = Tortoise.get_connection("default")
@@ -1049,6 +1086,13 @@ async def approve_subsection_value(
     if not subsection_valid:
         raise HTTPException(status_code=400, detail=f"Invalid subsection '{subsection}' for section '{section}'")
     
+    # Ensure value is a string
+    value = approval.value
+    if value is None:
+        value = ""
+    else:
+        value = str(value)
+    
     # Use direct SQL to avoid datetime issues
     try:
         conn = Tortoise.get_connection("default")
@@ -1067,7 +1111,7 @@ async def approve_subsection_value(
                 SET approved_value = $4 
                 WHERE document_id = $1 AND section = $2 AND subsection = $3;
             """
-            await conn.execute_query(update_query, [str(doc.id), section, subsection, approval.value])
+            await conn.execute_query(update_query, [str(doc.id), section, subsection, value])
             logger.debug(f"Updated approval for {section}.{subsection}")
         else:
             # Insert new record
@@ -1075,7 +1119,7 @@ async def approve_subsection_value(
                 INSERT INTO approved_subsections(document_id, section, subsection, approved_value)
                 VALUES($1, $2, $3, $4);
             """
-            await conn.execute_query(insert_query, [str(doc.id), section, subsection, approval.value])
+            await conn.execute_query(insert_query, [str(doc.id), section, subsection, value])
             logger.debug(f"Created approval for {section}.{subsection}")
     except Exception as e:
         logger.exception(f"Database error during approval: {str(e)}")
@@ -1086,7 +1130,7 @@ async def approve_subsection_value(
         "document_id": document_id,
         "section": section,
         "subsection": subsection,
-        "value": approval.value,
+        "value": value,
         "approved": True
     }
 
@@ -1138,6 +1182,26 @@ async def simple_approve_subsection(
         raise HTTPException(status_code=404, detail=f"No data found for subsection '{subsection}'")
             
     value = data[subsection]
+    
+    # Format the value for human readability
+    if isinstance(value, dict):
+        # Format dictionary into a readable string with each key-value pair on a new line
+        formatted_value = ""
+        for key, val in value.items():
+            formatted_value += f"{key}: {val}\n"
+        value = formatted_value.rstrip("\n")  # Remove trailing newline
+        logger.info(f"Formatted dictionary value for {section}.{subsection}")
+    elif isinstance(value, list):
+        # Format list into a bulleted list
+        formatted_value = ""
+        for item in value:
+            formatted_value += f"• {item}\n"
+        value = formatted_value.rstrip("\n")  # Remove trailing newline
+        logger.info(f"Formatted list value for {section}.{subsection}")
+    elif value is None:
+        value = ""
+    else:
+        value = str(value)
     
     # Use direct SQL to avoid datetime issues
     try:
@@ -1204,3 +1268,13 @@ async def _update_section_data(doc: Document, data: Dict[str, Any]) -> None:
                 await SectionData.create(document=doc, section=sec_name, data=sec_data)
         else:
             logger.warning(f"Section '{sec_name}' data is not a dictionary, it's {type(sec_data)}. Skipping.")
+
+@router.get("/{document_id}/limits")
+async def get_conversation_limits(
+    document_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get the current rate limit status for the user
+    """
+    return await RateLimiter.get_user_limits(current_user)

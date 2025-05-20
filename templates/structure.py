@@ -1,7 +1,8 @@
 DOCUMENT_STRUCTURE = {
     'Deklarationsanalyse': [
         {'Deckblatt':    ['Projekt', 'Auftraggeber', 'Dienstleistungsnummer', 'Probenahmedatum']},
-        {'Stellungnahme': ['Probenahmeprotokoll', 'Laborberichte', 'Auswertung']}
+        {'Stellungnahme': ['Probenahmeprotokoll', 'Laborberichte', 'Auswertung']},
+        {'Anhänge':      ['Dateien']}
     ],
     'Bodenuntersuchung': [
         {'Projekt Details':    ['Untersuchungsmethoden', 'Probenentnahme']},
