@@ -95,8 +95,12 @@
             display: flex;
             justify-content: space-between;
             margin-bottom: 10px;
+            font-size: 10pt;
         }
         .toc-link {
+            font-weight: normal;
+        }
+        .toc-section {
             font-weight: bold;
         }
         .toc-dots {
@@ -208,9 +212,6 @@
         </div>
     </div>
 
-    <!-- Force page break -->
-    <div style="page-break-after: always; break-after: page; height: 1px; display: block; clear: both;"></div>
-
     <!-- Table of Contents -->
     <div class="toc-page">
         <div class="toc-title">Inhaltsverzeichnis</div>
@@ -219,7 +220,7 @@
             {% set outer_loop_index = loop.index %}
             {% for section, subsections in section_item.items() %}
                 <div class="toc-entry">
-                    <span class="toc-link">{{ outer_loop_index }}. {{ section }}</span>
+                    <span class="toc-link toc-section">{{ outer_loop_index }}. {{ section }}</span>
                     <span class="toc-dots"></span>
                 </div>
                 
