@@ -44,5 +44,4 @@ Thumbs.db
 docker-compose.override.yml
 
 # Aerich migration files to ignore
-migrations/*
 !migrations/.gitkeep
