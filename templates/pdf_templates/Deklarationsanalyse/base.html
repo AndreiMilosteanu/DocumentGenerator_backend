@@ -80,7 +80,9 @@
             color: #777;
         }
         .toc-page {
+            page-break-before: always;
             page-break-after: always;
+            min-height: 100vh;
         }
         .toc-title {
             font-size: 16pt;
@@ -93,8 +95,12 @@
             display: flex;
             justify-content: space-between;
             margin-bottom: 10px;
+            font-size: 10pt;
         }
         .toc-link {
+            font-weight: normal;
+        }
+        .toc-section {
             font-weight: bold;
         }
         .toc-dots {
@@ -220,7 +226,7 @@
             {% set outer_loop_index = loop.index %}
             {% for section, subsections in section_item.items() %}
                 <div class="toc-entry">
-                    <span class="toc-link">{{ outer_loop_index }}. {{ section }}</span>
+                    <span class="toc-link toc-section">{{ outer_loop_index }}. {{ section }}</span>
                     <span class="toc-dots"></span>
                 </div>
                 
