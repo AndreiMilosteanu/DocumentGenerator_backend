@@ -8,6 +8,7 @@ from models import Document, User, FileUpload, FileUploadStatus, ChatMessage, Se
 from utils.auth import get_current_active_user
 from utils.file_upload import process_file_upload, FileUploadError, delete_openai_file, extract_file_content, extract_document_data_from_file
 from utils.rate_limiter import RateLimiter
+from utils.auto_pdf_generator import schedule_pdf_generation
 from templates.structure import DOCUMENT_STRUCTURE
 import json
 
@@ -283,6 +284,9 @@ async def upload_file(
         # NEW: Extract data from file and update document sections
         await update_document_with_extracted_data(doc, file_content, file.filename)
         
+        # NEW: Schedule automatic PDF generation
+        schedule_pdf_generation(document_id)
+        
         # Create response
         return FileUploadResponse(
             id=file_upload.id,
@@ -389,6 +393,9 @@ Don't limit yourself to any specific section - look for data that could fit anyw
         
         # Schedule the assistant to process the file in the background
         background_tasks.add_task(process_assistant_response, doc.id, doc.thread_id, doc.topic, section, subsection)
+        
+        # NEW: Schedule automatic PDF generation
+        schedule_pdf_generation(document_id)
         
         # Create response
         return FileUploadResponse(

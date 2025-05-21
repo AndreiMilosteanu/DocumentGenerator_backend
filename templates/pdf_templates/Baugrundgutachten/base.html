@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Baugrundgutachten</title>
+    <style>
+        @page {
+            margin: 2.5cm 2.5cm 2.5cm 2.5cm;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.5;
+            font-size: 11pt;
+        }
+        .cover-page {
+            text-align: center;
+            height: 100vh;
+            page-break-after: always;
+        }
+        .cover-image {
+            width: 80%;
+            margin: 0 auto;
+            margin-top: 50px;
+        }
+        .cover-title {
+            font-size: 24pt;
+            font-weight: bold;
+            margin-top: 40px;
+            margin-bottom: 20px;
+        }
+        .cover-subtitle {
+            font-size: 18pt;
+            margin-bottom: 60px;
+        }
+        .cover-details {
+            font-size: 12pt;
+            margin-top: 40px;
+            line-height: 2;
+        }
+        .cover-details table {
+            margin: 0 auto;
+            text-align: left;
+        }
+        .cover-details td:first-child {
+            font-weight: bold;
+            padding-right: 20px;
+        }
+        .toc-page {
+            page-break-after: always;
+        }
+        .toc-title {
+            font-size: 16pt;
+            font-weight: bold;
+            margin-top: 40px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .toc-entry {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .toc-link {
+            font-weight: bold;
+        }
+        .toc-dots {
+            flex-grow: 1;
+            border-bottom: 1px dotted #000;
+            margin: 0 5px;
+            position: relative;
+            top: -5px;
+        }
+        .section-title {
+            font-size: 14pt;
+            font-weight: bold;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            page-break-after: avoid;
+        }
+        .subsection-title {
+            font-size: 12pt;
+            font-weight: bold;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            page-break-after: avoid;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .page-break {
+            page-break-before: always;
+        }
+        .footer {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 9pt;
+            color: #777;
+        }
+    </style>
+</head>
+<body>
+    <!-- Cover Page -->
+    <div class="cover-page">
+        <div class="cover-image">
+            <!-- Logo or image can be added here -->
+            <!-- <img src="{{ logo_path }}" alt="Company Logo"> -->
+        </div>
+        <div class="cover-title">Baugrundgutachten</div>
+        <div class="cover-subtitle">{{ project_name|default('Projektname') }}</div>
+        <div class="cover-details">
+            <table>
+                <tr>
+                    <td>Auftraggeber:</td>
+                    <td>{{ client_name|default('') }}</td>
+                </tr>
+                <tr>
+                    <td>Projektnummer:</td>
+                    <td>{{ project_number|default('') }}</td>
+                </tr>
+                <tr>
+                    <td>Datum:</td>
+                    <td>{{ date|default(now().strftime('%d.%m.%Y')) }}</td>
+                </tr>
+                <tr>
+                    <td>Bearbeiter:</td>
+                    <td>{{ author|default('') }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Table of Contents -->
+    <div class="toc-page">
+        <div class="toc-title">Inhaltsverzeichnis</div>
+        
+        {% for section_item in structure %}
+            {% set outer_loop_index = loop.index %}
+            {% for section, subsections in section_item.items() %}
+                <div class="toc-entry">
+                    <span class="toc-link">{{ outer_loop_index }}. {{ section }}</span>
+                    <span class="toc-dots"></span>
+                    <span class="toc-page-num">{{ outer_loop_index }}</span>
+                </div>
+                
+                {% for subsection in subsections %}
+                    <div class="toc-entry" style="margin-left: 20px;">
+                        <span class="toc-link">{{ outer_loop_index }}.{{ loop.index }} {{ subsection }}</span>
+                        <span class="toc-dots"></span>
+                        <span class="toc-page-num">{{ outer_loop_index }}</span>
+                    </div>
+                {% endfor %}
+            {% endfor %}
+        {% endfor %}
+    </div>
+
+    <!-- Document Content -->
+    {% for section_item in structure %}
+        {% set outer_loop_index = loop.index %}
+        {% for section, subsections in section_item.items() %}
+            <div class="section-title">{{ outer_loop_index }}. {{ section }}</div>
+            
+            {% for subsection in subsections %}
+                <div class="subsection-title">{{ outer_loop_index }}.{{ loop.index }} {{ subsection }}</div>
+                
+                <!-- Render content for this subsection if it exists -->
+                {% set section_key = section %}
+                {% set subsection_key = subsection %}
+                
+                {% if section_data and section_data[section_key] and section_data[section_key][subsection_key] %}
+                    {{ section_data[section_key][subsection_key]|safe }}
+                {% else %}
+                    <p>[Kein Inhalt verfügbar]</p>
+                {% endif %}
+            {% endfor %}
+            
+            {% if not loop.last %}
+                <div class="page-break"></div>
+            {% endif %}
+        {% endfor %}
+    {% endfor %}
+
+    <!-- Footer -->
+    <div class="footer">
+        Baugrundgutachten | {{ project_name|default('Projektname') }} | Seite <span class="page"></span>
+    </div>
+</body>
+</html> 
