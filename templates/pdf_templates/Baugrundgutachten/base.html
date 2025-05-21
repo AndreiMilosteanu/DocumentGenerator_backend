@@ -80,7 +80,9 @@
             color: #777;
         }
         .toc-page {
+            page-break-before: always;
             page-break-after: always;
+            min-height: 100vh;
         }
         .toc-title {
             font-size: 16pt;
@@ -205,6 +207,9 @@
             {{ company_info|default('Erdbaron HQ SRL | Prost Becca 15 | 55065 Hermannstadt') }}
         </div>
     </div>
+
+    <!-- Force page break -->
+    <div style="page-break-after: always; break-after: page; height: 1px; display: block; clear: both;"></div>
 
     <!-- Table of Contents -->
     <div class="toc-page">

@@ -418,6 +418,10 @@ def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
             'footer-center': '[page] / [topage]',
             'footer-font-size': '9',
             'quiet': '',
+            'disable-smart-shrinking': '',  # Force exact rendering of contents
+            'enable-local-file-access': '',  # Needed in some environments
+            'print-media-type': '',  # Use print media CSS
+            'page-offset': '0',  # Start page numbering at 1
         }
         
         # Render PDF using wkhtmltopdf
