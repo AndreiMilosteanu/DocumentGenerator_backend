@@ -48,7 +48,7 @@ async def generate_pdf_from_file_upload(file_upload_id: str) -> bool:
                 base_url = "http://localhost:8000"  # Adjust if your server runs on a different port
                 response = await client.get(
                     f"{base_url}/documents/{document.id}/pdf",
-                    params={"approved_only": False, "include_attachments": True}
+                    params={"approved_only": True, "include_attachments": True}
                 )
                 
                 if response.status_code != 200:

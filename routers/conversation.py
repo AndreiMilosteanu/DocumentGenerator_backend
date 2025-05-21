@@ -495,14 +495,18 @@ async def start_conversation(
     # Set as active subsection
     await _set_active_subsection(document_id, section, subsection)
     
-    # Check if a conversation already exists for this subsection
+    # Force create a new thread for each document to ensure no context sharing
+    # This ensures each project has its own isolated conversation
+    create_new_thread = True
+    
+    # Check if a conversation already exists for this subsection in this document
     existing_messages = await ChatMessage.filter(
         document=doc,
         section=section,
         subsection=subsection
     ).exists()
     
-    if existing_messages:
+    if existing_messages and doc.thread_id:
         logger.info(f"Conversation already exists for {section}/{subsection}. Returning existing data.")
         # Get the most recent assistant message
         last_message = await ChatMessage.filter(
@@ -515,6 +519,8 @@ async def start_conversation(
         # Get the section data
         section_data = await _get_section_data_for_subsection(doc, section, subsection)
         
+        create_new_thread = False
+        
         return {
             "data": section_data,
             "message": last_message.content if last_message else "",
@@ -522,14 +528,19 @@ async def start_conversation(
             "subsection": subsection
         }
     
-    # If new or no thread, create OpenAI thread
-    thread_created = False
-    if created or not doc.thread_id:
+    # Create a new OpenAI thread to ensure isolation between projects
+    if create_new_thread or not doc.thread_id:
+        # If there was a previous thread, we're intentionally ignoring it to maintain isolation
+        if doc.thread_id:
+            logger.info(f"Replacing existing thread {doc.thread_id} with a new one for isolation")
+        
         thread = openai.beta.threads.create()
         doc.thread_id = thread.id
         await doc.save()
         logger.debug(f"Created new thread with ID {thread.id}")
         thread_created = True
+    else:
+        thread_created = False
         
     thread_id = doc.thread_id
     logger.debug(f"Using thread ID {thread_id}")
@@ -561,6 +572,17 @@ async def start_conversation(
     )
     prompt_lines.append(
         f"Please focus on gathering information ONLY for this specific subsection until instructed otherwise."
+    )
+    
+    # Add isolation instructions to ensure thread-specific context
+    prompt_lines.append(
+        f"\nIMPORTANT ISOLATION INSTRUCTIONS: This is thread ID {thread_id}. Your responses must be based ONLY on information shared within this specific thread."
+    )
+    prompt_lines.append(
+        f"Do not use or reference any information, files, or data from other threads or conversations."
+    )
+    prompt_lines.append(
+        f"Any files that will be uploaded are specific to this thread only and must not influence your responses in other threads."
     )
     
     prompt_lines.append(
@@ -675,14 +697,16 @@ async def start_subsection_conversation(
     # Set as active subsection
     await _set_active_subsection(document_id, request.section, request.subsection)
     
-    # Check if thread exists, create one if needed
-    thread_created = False
+    # We'll use the existing thread if it exists for this document
+    # Note: Context isolation is ensured at project creation time in start_conversation
     if not doc.thread_id:
         thread = openai.beta.threads.create()
         doc.thread_id = thread.id
         await doc.save()
         logger.debug(f"Created new thread with ID {thread.id}")
         thread_created = True
+    else:
+        thread_created = False
     
     thread_id = doc.thread_id
     

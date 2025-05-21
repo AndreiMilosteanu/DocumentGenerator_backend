@@ -314,7 +314,7 @@ async def get_approved_subsections(
 @router.get("/{document_id}/pdf")
 async def generate_pdf(
     document_id: str, 
-    approved_only: bool = False,
+    approved_only: bool = True,
     include_attachments: bool = True,
     current_user: User = Depends(get_current_active_user)
 ):

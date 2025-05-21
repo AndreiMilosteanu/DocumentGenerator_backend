@@ -239,7 +239,7 @@ async def upload_file(
 ):
     """
     Upload a file to be associated with a document and attached to its OpenAI thread.
-    The file will be analyzed and its content used to populate the document structure.
+    The file will be used as context for the assistant but will NOT automatically update the document.
     """
     # Check rate limit
     allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
@@ -281,12 +281,6 @@ async def upload_file(
             # In case the file_data field is not yet available in the database
             logger.warning(f"Could not save file_data: {str(e)}. Field may not exist in database yet.")
         
-        # NEW: Extract data from file and update document sections
-        await update_document_with_extracted_data(doc, file_content, file.filename)
-        
-        # NEW: Schedule automatic PDF generation
-        schedule_pdf_generation(document_id)
-        
         # Create response
         return FileUploadResponse(
             id=file_upload.id,
@@ -316,7 +310,7 @@ async def upload_file_to_message(
 ):
     """
     Upload a file and create a message in the conversation referencing it.
-    The file content will be analyzed and used to populate the document structure.
+    The file will be used only as context for the assistant and will NOT automatically modify any document data.
     """
     # Check rate limit
     allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
@@ -354,8 +348,8 @@ async def upload_file_to_message(
         # If no message provided, create a default message that encourages the assistant to analyze the file
         if not message:
             message = f"""I've uploaded a file: {file.filename}. 
-Please analyze this file thoroughly and extract all relevant information to populate our document structure. 
-Don't limit yourself to any specific section - look for data that could fit anywhere in our template."""
+Please analyze this file and help me understand its content. Let's discuss what information might be relevant for our document.
+Do NOT automatically add any content to the document - we'll decide together what should be included after our discussion."""
         
         # Create the message first
         chat_message = await ChatMessage.create(
@@ -388,14 +382,8 @@ Don't limit yourself to any specific section - look for data that could fit anyw
             # In case the file_data field is not yet available in the database
             logger.warning(f"Could not save file_data: {str(e)}. Field may not exist in database yet.")
         
-        # NEW: Extract data from file and update document sections
-        await update_document_with_extracted_data(doc, file_content, file.filename)
-        
         # Schedule the assistant to process the file in the background
         background_tasks.add_task(process_assistant_response, doc.id, doc.thread_id, doc.topic, section, subsection)
-        
-        # NEW: Schedule automatic PDF generation
-        schedule_pdf_generation(document_id)
         
         # Create response
         return FileUploadResponse(

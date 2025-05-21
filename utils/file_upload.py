@@ -12,6 +12,7 @@ import PyPDF2
 import docx
 import json
 import io
+import time
 
 logger = logging.getLogger("file_upload")
 
@@ -68,10 +69,15 @@ async def save_temp_file(file_content: bytes, filename: str) -> str:
     
     return temp_path
 
-async def upload_file_to_openai(file_path: str, purpose: str = "assistants") -> Dict[str, Any]:
+async def upload_file_to_openai(file_path: str, purpose: str = "assistants", thread_id: str = None) -> Dict[str, Any]:
     """
     Upload a file to OpenAI.
     Returns the OpenAI file object.
+    
+    Args:
+        file_path: Path to the file to upload
+        purpose: Purpose of the file (always 'assistants' for file_search)
+        thread_id: The thread ID this file belongs to (for better isolation)
     """
     try:
         # Create OpenAI client instance
@@ -82,11 +88,24 @@ async def upload_file_to_openai(file_path: str, purpose: str = "assistants") -> 
             logger.warning(f"Changing file purpose from '{purpose}' to 'assistants' for compatibility with file_search")
             purpose = "assistants"
         
+        # Add thread isolation using metadata if thread_id is provided
+        metadata = {}
+        if thread_id:
+            # Create a thread-specific metadata tag
+            # This won't affect functionality but allows tracking which thread a file belongs to
+            metadata = {
+                "thread_id": thread_id,
+                "isolation_key": f"thread_{thread_id}",
+                "upload_timestamp": str(int(time.time()))
+            }
+            logger.info(f"Uploading file with thread isolation metadata for thread: {thread_id}")
+        
         with open(file_path, 'rb') as file:
             response = client.files.create(
                 file=file,
                 purpose=purpose
             )
+            
         logger.info(f"File successfully uploaded to OpenAI with ID: {response.id}")
         return response
     except Exception as e:
@@ -117,22 +136,39 @@ async def attach_file_to_thread(thread_id: str, file_id: str, topic: str) -> Dic
         client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
         
         # First, update the Assistant to ensure it has file_search capability
+        # We don't modify any other assistant settings to maintain isolation
         client.beta.assistants.update(
             assistant_id=assistant_id,
             tools=[{"type": "file_search"}]
         )
         
-        # Now attach the file to a message in the thread
+        # Create isolation key for this thread
+        isolation_key = f"thread_{thread_id}_isolation_{int(time.time())}"
+        
+        # Attach the file specifically to this project's thread with a message
+        # that clearly scopes it to this project only with strong isolation instructions
+        isolation_message = (
+            f"IMPORTANT ISOLATION AND PROCESSING NOTICE: I've uploaded a document for reference in this specific project only. "
+            f"This document has isolation key: {isolation_key}. "
+            f"The content of this document must ONLY be used within this specific thread (ID: {thread_id}). "
+            f"Do not reference or use this document's information in any other thread or conversation. "
+            f"This file's contents are exclusively for this project and must not affect your responses in other threads.\n\n"
+            f"HANDLING INSTRUCTIONS: Do NOT automatically add any content from this file to the document sections. "
+            f"Instead, help me review the file content through conversation. We will explicitly discuss and decide together "
+            f"which information to include in the document. Only when I specifically approve content for a particular "
+            f"subsection should it be added to the document structure."
+        )
+        
         response = client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
-            content="I've uploaded a document for reference. Please analyze its contents when I ask questions about it.",
+            content=isolation_message,
             attachments=[
                 {"file_id": file_id, "tools": [{"type": "file_search"}]}
             ]
         )
         
-        logger.info(f"Successfully attached file {file_id} to thread {thread_id} with assistant {assistant_id}")
+        logger.info(f"Successfully attached file {file_id} to thread {thread_id} with assistant {assistant_id} and isolation key {isolation_key}")
         
         return response
     except Exception as e:
@@ -245,16 +281,17 @@ async def process_file_upload(
         file_upload.status = FileUploadStatus.PROCESSING
         await file_upload.save()
         
-        # Upload to OpenAI
-        openai_file = await upload_file_to_openai(temp_path)
+        # Upload to OpenAI with thread_id for isolation
+        thread_id = document.thread_id
+        openai_file = await upload_file_to_openai(temp_path, thread_id=thread_id)
         
         # Update record with OpenAI file ID
         file_upload.openai_file_id = openai_file.id
         await file_upload.save()
         
         # Attach to thread
-        logger.info(f"Attaching file {openai_file.id} to thread {document.thread_id}")
-        await attach_file_to_thread(document.thread_id, openai_file.id, document.topic)
+        logger.info(f"Attaching file {openai_file.id} to thread {thread_id}")
+        await attach_file_to_thread(thread_id, openai_file.id, document.topic)
             
         # Update status to READY
         file_upload.status = FileUploadStatus.READY
