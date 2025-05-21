@@ -11,6 +11,7 @@ from models import Document, SectionData, ChatMessage, ActiveSubsection, Approve
 from utils.auth import get_current_active_user, get_admin_user
 from utils.file_upload import attach_pending_files_to_thread
 from utils.rate_limiter import RateLimiter
+import re
 
 router = APIRouter()
 logger = logging.getLogger("conversation")
@@ -87,6 +88,9 @@ async def _run_thread_and_parse(thread_id: str, topic: str, user: User = None) -
             logger.debug(f"Raw assistant content: {raw[:100]}...")
             break
     
+    # Clean markers like 【9:0†source】 from the content
+    raw = re.sub(r'【[^】]*】', '', raw)
+    
     # Initialize variables
     data = {}
     human = raw.strip()  # Default to using full content as human message if no JSON detected
@@ -128,6 +132,9 @@ async def _run_thread_and_parse(thread_id: str, topic: str, user: User = None) -
             
             # If we got valid JSON, set human part to second part (if exists)
             human = parts[1].strip() if len(parts) > 1 else ''
+            
+            # Clean any source markers from the human message
+            human = re.sub(r'【[^】]*】', '', human)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {e}")
             logger.error(f"Raw content that failed to parse: {json_part[:200]}...")
@@ -135,6 +142,8 @@ async def _run_thread_and_parse(thread_id: str, topic: str, user: User = None) -
     else:
         logger.warning(f"Response does not begin with a JSON object. First character: '{first_char}'")
         logger.warning("Using entire response as human message and returning empty data")
+        # Clean any source markers from the full content used as human message
+        human = re.sub(r'【[^】]*】', '', human)
     
     logger.debug(f"Human part (first 100 chars): {human[:100]}...")
     logger.info(f"Extracted data with {len(data)} keys and human message of length {len(human)}")

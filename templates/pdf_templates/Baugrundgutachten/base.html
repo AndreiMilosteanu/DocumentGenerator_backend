@@ -11,39 +11,73 @@
             font-family: Arial, sans-serif;
             line-height: 1.5;
             font-size: 11pt;
+            margin: 0;
+            padding: 0;
         }
         .cover-page {
-            text-align: center;
             height: 100vh;
             page-break-after: always;
+            position: relative;
         }
-        .cover-image {
-            width: 80%;
-            margin: 0 auto;
-            margin-top: 50px;
+        .header-banner {
+            background-color: #f2f2f2;
+            padding: 30px 40px;
+            border-radius: 0 0 10px 10px;
+            margin-bottom: 40px;
+            position: relative;
+            overflow: hidden;
+        }
+        .header-image {
+            position: absolute;
+            right: 40px;
+            top: 20px;
+            width: 120px;
         }
         .cover-title {
             font-size: 24pt;
             font-weight: bold;
-            margin-top: 40px;
-            margin-bottom: 20px;
+            color: #555;
         }
         .cover-subtitle {
-            font-size: 18pt;
-            margin-bottom: 60px;
+            font-size: 14pt;
+            margin-top: 5px;
+            color: #777;
         }
-        .cover-details {
-            font-size: 12pt;
-            margin-top: 40px;
-            line-height: 2;
+        .content-section {
+            padding: 0 40px;
+            margin-bottom: 30px;
         }
-        .cover-details table {
-            margin: 0 auto;
-            text-align: left;
-        }
-        .cover-details td:first-child {
+        .section-label {
+            font-size: 10pt;
+            text-transform: uppercase;
+            color: #555;
+            margin-bottom: 5px;
             font-weight: bold;
-            padding-right: 20px;
+        }
+        .section-value {
+            font-size: 12pt;
+            color: #333;
+            margin-bottom: 3px;
+        }
+        .divider {
+            height: 1px;
+            background-color: #eee;
+            margin: 20px 0;
+        }
+        .signature-box {
+            background-color: #f8f8f8;
+            padding: 20px;
+            margin-top: 40px;
+            width: 200px;
+        }
+        .footer {
+            position: absolute;
+            bottom: 30px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 9pt;
+            color: #777;
         }
         .toc-page {
             page-break-after: always;
@@ -100,7 +134,7 @@
         .page-break {
             page-break-before: always;
         }
-        .footer {
+        .document-footer {
             position: fixed;
             bottom: 0;
             width: 100%;
@@ -113,31 +147,62 @@
 <body>
     <!-- Cover Page -->
     <div class="cover-page">
-        <div class="cover-image">
-            <!-- Logo or image can be added here -->
-            <!-- <img src="{{ logo_path }}" alt="Company Logo"> -->
+        <!-- Header Banner -->
+        <div class="header-banner">
+            <div class="cover-title">BAUGRUNDGUTACHTEN</div>
+            <div class="cover-subtitle">NACH DIN 4020</div>
+            <div class="header-image">
+                <!-- Document icon -->
+                <!-- <img src="{{ logo_path }}" alt="Document Icon"> -->
+            </div>
         </div>
-        <div class="cover-title">Baugrundgutachten</div>
-        <div class="cover-subtitle">{{ project_name|default('Projektname') }}</div>
-        <div class="cover-details">
-            <table>
-                <tr>
-                    <td>Auftraggeber:</td>
-                    <td>{{ client_name|default('') }}</td>
-                </tr>
-                <tr>
-                    <td>Projektnummer:</td>
-                    <td>{{ project_number|default('') }}</td>
-                </tr>
-                <tr>
-                    <td>Datum:</td>
-                    <td>{{ date|default(now().strftime('%d.%m.%Y')) }}</td>
-                </tr>
-                <tr>
-                    <td>Bearbeiter:</td>
-                    <td>{{ author|default('') }}</td>
-                </tr>
-            </table>
+        
+        <!-- Project Description -->
+        <div class="content-section">
+            <div class="section-label">PROJEKTBESCHREIBUNG</div>
+            <div class="section-value">{{ project_name|default('Projektname') }}</div>
+            <div class="section-value">{{ project_line2|default('') }}</div>
+        </div>
+        
+        <!-- Location Information -->
+        <div class="content-section">
+            <div class="section-value">{{ property_info|default('FLURSTÜCK / GEMARKUNG') }}</div>
+            <div class="section-value">{{ street|default('STRASSE') }} {{ house_number|default('HAUSNUMMER') }}</div>
+            <div class="section-value">{{ postal_code|default('POSTLEITZAHL') }} {{ city|default('STADT') }}</div>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <!-- Client Information -->
+        <div class="content-section">
+            <div class="section-label">AUFTRAGGEBER</div>
+            <div class="section-value">{{ client_company|default('FIRMA') }}</div>
+            <div class="section-value">{{ client_name|default('VORNAME NACHNAME') }}</div>
+            <div class="section-value">{{ client_street|default('STRASSE') }} {{ client_house_number|default('HAUSNUMMER') }}</div>
+            <div class="section-value">{{ client_postal_code|default('POSTLEITZAHL') }} {{ client_city|default('STADT') }}</div>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <!-- Order Information -->
+        <div class="content-section">
+            <div class="section-label">AUFTRAG</div>
+            <div class="section-value">AUFTRAGSNUMMER: {{ order_number|default('DEALNUMMER') }}</div>
+            <div class="section-value">ERSTELLT AM: {{ creation_date|default('') }}</div>
+            <div class="section-value">ERSTELLT DURCH: {{ author|default('') }}</div>
+        </div>
+        
+        <!-- Signature -->
+        <div class="content-section">
+            <div class="section-label">UNTERSCHRIFT</div>
+            <div class="signature-box">
+                {{ signature_name|default('Jochen Klewin') }}
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            {{ company_info|default('Erdbaron HQ SRL | Prost Becca 15 | 55065 Hermannstadt') }}
         </div>
     </div>
 
@@ -151,14 +216,12 @@
                 <div class="toc-entry">
                     <span class="toc-link">{{ outer_loop_index }}. {{ section }}</span>
                     <span class="toc-dots"></span>
-                    <span class="toc-page-num">{{ outer_loop_index }}</span>
                 </div>
                 
                 {% for subsection in subsections %}
                     <div class="toc-entry" style="margin-left: 20px;">
                         <span class="toc-link">{{ outer_loop_index }}.{{ loop.index }} {{ subsection }}</span>
                         <span class="toc-dots"></span>
-                        <span class="toc-page-num">{{ outer_loop_index }}</span>
                     </div>
                 {% endfor %}
             {% endfor %}
@@ -191,8 +254,8 @@
         {% endfor %}
     {% endfor %}
 
-    <!-- Footer -->
-    <div class="footer">
+    <!-- Document Footer -->
+    <div class="document-footer">
         Baugrundgutachten | {{ project_name|default('Projektname') }} | Seite <span class="page"></span>
     </div>
 </body>
