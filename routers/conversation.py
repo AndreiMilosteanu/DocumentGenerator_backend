@@ -46,15 +46,25 @@ class SubsectionApproval(BaseModel):
 class SimpleApproval(BaseModel):
     pass  # No fields needed, just use section/subsection from URL
 
+class SectionDataUpdate(BaseModel):
+    value: str
+
+class UpdateAndApproveData(BaseModel):
+    value: str
+    notify_assistant: bool = True
+
+class SubsectionDataStatus(BaseModel):
+    section: str
+    subsection: str
+    has_data: bool
+    is_approved: bool
+    approved_version: Optional[str] = None
+
 async def _run_thread_and_parse(thread_id: str, topic: str, user: User = None) -> Tuple[Dict[str, Any], str]:
     """
     Executes the assistant run on an existing thread, returns parsed JSON data and human reply.
     """
-    # Check rate limit if user is provided
-    if user:
-        allowed, error_msg = await RateLimiter.check_rate_limit(user)
-        if not allowed:
-            raise HTTPException(status_code=429, detail=error_msg)
+    # Rate limiting disabled - previously checked rate limit here
     
     # Get the appropriate assistant ID for the topic
     assistant_id = settings.TOPIC_ASSISTANTS.get(topic)
@@ -63,16 +73,48 @@ async def _run_thread_and_parse(thread_id: str, topic: str, user: User = None) -
         logger.error(f"No assistant ID available for topic '{topic}'. Please configure at least one assistant.")
         raise ValueError(f"No assistant ID available. Configure ASSISTANT_ID or {topic.upper()}_ASSISTANT_ID in .env file")
     
+    # Create a custom client with increased timeout to prevent hanging requests
+    client = openai.OpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        timeout=120.0  # Increase timeout to 2 minutes
+    )
+    
     # Kick off the assistant run
     logger.debug(f"Starting assistant run for thread_id: {thread_id} with assistant_id: {assistant_id}")
-    run = openai.beta.threads.runs.create_and_poll(
-        thread_id=thread_id,
-        assistant_id=assistant_id
-    )
-    logger.debug(f"Run completed with status: {run.status}")
+    try:
+        # Check if there's already an active run
+        runs = client.beta.threads.runs.list(thread_id=thread_id)
+        runs_list = list(runs)
+        active_run = None
+        
+        for run in runs_list:
+            if run.status in ["in_progress", "queued"]:
+                active_run = run
+                break
+        
+        if active_run:
+            logger.warning(f"Thread {thread_id} already has an active run {active_run.id} with status {active_run.status}")
+            # Wait for the run to complete
+            run = client.beta.threads.runs.retrieve_and_poll(
+                thread_id=thread_id,
+                run_id=active_run.id,
+                poll_interval_ms=500  # Check every 0.5 seconds
+            )
+        else:
+            # Create a new run
+            run = client.beta.threads.runs.create_and_poll(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                poll_interval_ms=500  # Check every 0.5 seconds
+            )
+        
+        logger.debug(f"Run completed with status: {run.status}")
+    except Exception as e:
+        logger.error(f"Error during assistant run: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Assistant error: {str(e)}")
     
     # Retrieve messages for that run
-    msgs = openai.beta.threads.messages.list(thread_id=thread_id, run_id=run.id)
+    msgs = client.beta.threads.messages.list(thread_id=thread_id, run_id=run.id)
     logger.debug(f"Retrieved {len(list(msgs))} messages for the run")
     
     # Combine assistant content
@@ -257,29 +299,55 @@ async def _send_format_correction(thread_id: str, doc_topic: str) -> None:
         logger.error(f"No assistant ID available for topic '{doc_topic}'. Please configure at least one assistant.")
         raise ValueError(f"No assistant ID available. Configure ASSISTANT_ID or {doc_topic.upper()}_ASSISTANT_ID in .env file")
     
+    # Create a custom client with increased timeout
+    client = openai.OpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        timeout=120.0  # Increase timeout to 2 minutes
+    )
+    
     correction_message = (
         "CRITICAL FORMAT CORRECTION: Your last response did not follow the required format. "
         "You MUST structure ALL responses in exactly two parts:\n\n"
         "1) First part: A valid JSON object starting with '{' containing all the information gathered so far\n"
         "2) Second part: Your human-readable message after TWO newlines\n\n"
-        f"For example:\n"
+        f"Example format:\n"
         f"{{\"Section Name\": {{\"Subsection1\": \"Value1\", \"Subsection2\": \"Value2\"}}}}\n\n"
         f"Your normal human response here...\n\n"
         f"Please continue helping with the {doc_topic} document, but ALWAYS follow this exact format."
     )
     
     logger.warning(f"Sending format correction to thread {thread_id}")
-    openai.beta.threads.messages.create(
+    client.beta.threads.messages.create(
         thread_id=thread_id,
         role="user",
         content=correction_message
     )
     
-    # Run the assistant to get a corrected response
-    run = openai.beta.threads.runs.create_and_poll(
-        thread_id=thread_id,
-        assistant_id=assistant_id
-    )
+    # Check for active runs first
+    runs = client.beta.threads.runs.list(thread_id=thread_id)
+    runs_list = list(runs)
+    active_run = None
+    
+    for run in runs_list:
+        if run.status in ["in_progress", "queued"]:
+            active_run = run
+            break
+    
+    if active_run:
+        logger.warning(f"Thread {thread_id} already has an active run {active_run.id}. Waiting for it to complete.")
+        run = client.beta.threads.runs.retrieve_and_poll(
+            thread_id=thread_id,
+            run_id=active_run.id,
+            poll_interval_ms=500
+        )
+    else:
+        # Run the assistant to get a corrected response
+        run = client.beta.threads.runs.create_and_poll(
+            thread_id=thread_id,
+            assistant_id=assistant_id,
+            poll_interval_ms=500
+        )
+    
     logger.debug(f"Correction run completed with status: {run.status}")
     
     return
@@ -461,10 +529,10 @@ async def start_conversation(
     body: StartRequest,
     current_user: User = Depends(get_current_active_user)
 ):
-    # Check rate limit
-    allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=error_msg)
+    # Rate limiting disabled
+    # allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
+    # if not allowed:
+    #     raise HTTPException(status_code=429, detail=error_msg)
     
     logger.debug(f"Starting conversation for document {document_id} with topic {body.topic}")
     
@@ -797,10 +865,10 @@ async def reply_conversation(
     body: ReplyRequest,
     current_user: User = Depends(get_current_active_user)
 ):
-    # Check rate limit
-    allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=error_msg)
+    # Rate limiting disabled
+    # allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
+    # if not allowed:
+    #     raise HTTPException(status_code=429, detail=error_msg)
     
     logger.debug(f"Processing reply for document {document_id}")
     
@@ -1277,6 +1345,144 @@ async def simple_approve_subsection(
         "approved": True
     }
 
+@router.post("/{document_id}/approve-shown-data/{section}/{subsection}")
+async def approve_shown_data(
+    document_id: str, 
+    section: str, 
+    subsection: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Approve the data that was explicitly shown to the user for a specific subsection.
+    This endpoint is used when the user confirms the data presented by the assistant.
+    """
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
+    
+    # Validate section and subsection against document structure
+    topic = doc.topic
+    if topic not in DOCUMENT_STRUCTURE:
+        raise HTTPException(status_code=400, detail=f"Unknown topic '{topic}'")
+        
+    section_valid = False
+    subsection_valid = False
+    
+    for sec_obj in DOCUMENT_STRUCTURE[topic]:
+        sec_name = list(sec_obj.keys())[0]
+        if sec_name == section:
+            section_valid = True
+            if subsection in sec_obj[sec_name]:
+                subsection_valid = True
+                break
+    
+    if not section_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid section '{section}' for topic '{topic}'")
+    
+    if not subsection_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid subsection '{subsection}' for section '{section}'")
+    
+    # Get the section data
+    section_data = await SectionData.filter(document=doc, section=section).first()
+    
+    if not section_data:
+        raise HTTPException(status_code=404, detail=f"No data found for section '{section}'")
+            
+    data = section_data.data
+    
+    if subsection not in data:
+        raise HTTPException(status_code=404, detail=f"No data found for subsection '{subsection}'")
+            
+    value = data[subsection]
+    
+    # Format the value for human readability
+    if isinstance(value, dict):
+        # Format dictionary into a readable string with each key-value pair on a new line
+        formatted_value = ""
+        for key, val in value.items():
+            formatted_value += f"{key}: {val}\n"
+        value = formatted_value.rstrip("\n")  # Remove trailing newline
+        logger.info(f"Formatted dictionary value for {section}.{subsection}")
+    elif isinstance(value, list):
+        # Format list into a bulleted list
+        formatted_value = ""
+        for item in value:
+            formatted_value += f"• {item}\n"
+        value = formatted_value.rstrip("\n")  # Remove trailing newline
+        logger.info(f"Formatted list value for {section}.{subsection}")
+    elif value is None:
+        value = ""
+    else:
+        value = str(value)
+    
+    # Add a confirmation message to the conversation
+    thread_id = doc.thread_id
+    if thread_id:
+        confirmation_message = (
+            f"I have approved the data for {section} > {subsection}. "
+            f"This information will be included in the final PDF document."
+        )
+        
+        # Add message to conversation history
+        await ChatMessage.create(
+            document=doc,
+            role="user",
+            content=confirmation_message,
+            section=section,
+            subsection=subsection
+        )
+        
+        # Send to OpenAI thread
+        try:
+            openai.beta.threads.messages.create(
+                thread_id=thread_id,
+                role="user",
+                content=confirmation_message
+            )
+        except Exception as e:
+            logger.error(f"Error sending confirmation to OpenAI: {e}")
+    
+    # Use direct SQL to avoid datetime issues
+    try:
+        conn = Tortoise.get_connection("default")
+        
+        # Check if record exists
+        query = """
+            SELECT id FROM approved_subsections 
+            WHERE document_id = $1 AND section = $2 AND subsection = $3;
+        """
+        result = await conn.execute_query(query, [str(doc.id), section, subsection])
+        
+        if result[1]:  # Record exists
+            # Update existing record
+            update_query = """
+                UPDATE approved_subsections 
+                SET approved_value = $4 
+                WHERE document_id = $1 AND section = $2 AND subsection = $3;
+            """
+            await conn.execute_query(update_query, [str(doc.id), section, subsection, value])
+            logger.debug(f"Updated approval for {section}.{subsection}")
+        else:
+            # Insert new record
+            insert_query = """
+                INSERT INTO approved_subsections(document_id, section, subsection, approved_value)
+                VALUES($1, $2, $3, $4);
+            """
+            await conn.execute_query(insert_query, [str(doc.id), section, subsection, value])
+            logger.debug(f"Created approval for {section}.{subsection}")
+    except Exception as e:
+        logger.exception(f"Database error during approval: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    
+    # Return the result
+    return {
+        "document_id": document_id,
+        "section": section,
+        "subsection": subsection,
+        "value": value,
+        "approved": True,
+        "message": f"Data for {section} > {subsection} has been approved and will be included in the PDF."
+    }
+
 async def _update_section_data(doc: Document, data: Dict[str, Any]) -> None:
     """
     Update section data based on the AI response.
@@ -1311,3 +1517,438 @@ async def get_conversation_limits(
     Get the current rate limit status for the user
     """
     return await RateLimiter.get_user_limits(current_user)
+
+@router.get("/{document_id}/section-data/{section}/{subsection}")
+async def get_section_subsection_data(
+    document_id: str,
+    section: str,
+    subsection: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get the current data for a specific section/subsection.
+    This is used to populate the modal for user editing.
+    """
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
+    
+    # Validate section and subsection against document structure
+    topic = doc.topic
+    if topic not in DOCUMENT_STRUCTURE:
+        raise HTTPException(status_code=400, detail=f"Unknown topic '{topic}'")
+        
+    section_valid = False
+    subsection_valid = False
+    
+    for sec_obj in DOCUMENT_STRUCTURE[topic]:
+        sec_name = list(sec_obj.keys())[0]
+        if sec_name == section:
+            section_valid = True
+            if subsection in sec_obj[sec_name]:
+                subsection_valid = True
+                break
+    
+    if not section_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid section '{section}' for topic '{topic}'")
+    
+    if not subsection_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid subsection '{subsection}' for section '{section}'")
+    
+    # Get the section data
+    section_data = await SectionData.filter(document=doc, section=section).first()
+    
+    if not section_data:
+        # Return empty data if not found
+        return {
+            "document_id": document_id,
+            "section": section,
+            "subsection": subsection,
+            "value": "",
+            "approved": False
+        }
+            
+    data = section_data.data
+    
+    # Get the subsection value
+    value = data.get(subsection, "")
+    
+    # Format the value for human readability
+    if isinstance(value, dict):
+        # Format dictionary into a readable string with each key-value pair on a new line
+        formatted_value = ""
+        for key, val in value.items():
+            formatted_value += f"{key}: {val}\n"
+        value = formatted_value.rstrip("\n")  # Remove trailing newline
+        logger.info(f"Formatted dictionary value for {section}.{subsection}")
+    elif isinstance(value, list):
+        # Format list into a bulleted list
+        formatted_value = ""
+        for item in value:
+            formatted_value += f"• {item}\n"
+        value = formatted_value.rstrip("\n")  # Remove trailing newline
+        logger.info(f"Formatted list value for {section}.{subsection}")
+    elif value is None:
+        value = ""
+    else:
+        value = str(value)
+    
+    # Check if this subsection is already approved
+    is_approved = await ApprovedSubsection.filter(
+        document=doc,
+        section=section,
+        subsection=subsection
+    ).exists()
+    
+    # Get the approved value if it exists
+    approved_value = ""
+    if is_approved:
+        approved_subsection = await ApprovedSubsection.filter(
+            document=doc,
+            section=section,
+            subsection=subsection
+        ).first()
+        approved_value = approved_subsection.approved_value if approved_subsection else ""
+    
+    # Return the result
+    return {
+        "document_id": document_id,
+        "section": section,
+        "subsection": subsection,
+        "value": value,
+        "approved": is_approved,
+        "approved_value": approved_value
+    }
+
+@router.put("/{document_id}/section-data/{section}/{subsection}")
+async def update_section_subsection_data(
+    document_id: str,
+    section: str,
+    subsection: str,
+    data_update: SectionDataUpdate,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Update the data for a specific section/subsection based on user edits.
+    This is used when the user edits the data in the modal.
+    """
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
+    
+    # Validate section and subsection against document structure
+    topic = doc.topic
+    if topic not in DOCUMENT_STRUCTURE:
+        raise HTTPException(status_code=400, detail=f"Unknown topic '{topic}'")
+        
+    section_valid = False
+    subsection_valid = False
+    
+    for sec_obj in DOCUMENT_STRUCTURE[topic]:
+        sec_name = list(sec_obj.keys())[0]
+        if sec_name == section:
+            section_valid = True
+            if subsection in sec_obj[sec_name]:
+                subsection_valid = True
+                break
+    
+    if not section_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid section '{section}' for topic '{topic}'")
+    
+    if not subsection_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid subsection '{subsection}' for section '{section}'")
+    
+    # Get or create the section data
+    section_data, created = await SectionData.get_or_create(
+        document=doc,
+        section=section,
+        defaults={"data": {}}
+    )
+    
+    # Update the section data with the new value
+    data = section_data.data if isinstance(section_data.data, dict) else {}
+    data[subsection] = data_update.value
+    section_data.data = data
+    await section_data.save()
+    
+    logger.info(f"Updated section data for {section}.{subsection} with user-edited value")
+    
+    # Return the result
+    return {
+        "document_id": document_id,
+        "section": section,
+        "subsection": subsection,
+        "value": data_update.value,
+        "updated": True
+    }
+
+@router.post("/{document_id}/update-and-approve/{section}/{subsection}")
+async def update_and_approve_subsection(
+    document_id: str, 
+    section: str, 
+    subsection: str,
+    data: UpdateAndApproveData,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Update section data and approve it for the PDF in a single operation.
+    This is used when the user edits the data in the modal and approves it.
+    """
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
+    
+    # Validate section and subsection against document structure
+    topic = doc.topic
+    if topic not in DOCUMENT_STRUCTURE:
+        raise HTTPException(status_code=400, detail=f"Unknown topic '{topic}'")
+        
+    section_valid = False
+    subsection_valid = False
+    
+    for sec_obj in DOCUMENT_STRUCTURE[topic]:
+        sec_name = list(sec_obj.keys())[0]
+        if sec_name == section:
+            section_valid = True
+            if subsection in sec_obj[sec_name]:
+                subsection_valid = True
+                break
+    
+    if not section_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid section '{section}' for topic '{topic}'")
+    
+    if not subsection_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid subsection '{subsection}' for section '{section}'")
+    
+    # Update the section data first
+    section_data, created = await SectionData.get_or_create(
+        document=doc,
+        section=section,
+        defaults={"data": {}}
+    )
+    
+    # Update the data
+    section_dict = section_data.data if isinstance(section_data.data, dict) else {}
+    section_dict[subsection] = data.value
+    section_data.data = section_dict
+    await section_data.save()
+    
+    # Use direct SQL to avoid datetime issues when creating/updating approved subsection
+    try:
+        conn = Tortoise.get_connection("default")
+        
+        # Check if record exists
+        query = """
+            SELECT id FROM approved_subsections 
+            WHERE document_id = $1 AND section = $2 AND subsection = $3;
+        """
+        result = await conn.execute_query(query, [str(doc.id), section, subsection])
+        
+        if result[1]:  # Record exists
+            # Update existing record
+            update_query = """
+                UPDATE approved_subsections 
+                SET approved_value = $4 
+                WHERE document_id = $1 AND section = $2 AND subsection = $3;
+            """
+            await conn.execute_query(update_query, [str(doc.id), section, subsection, data.value])
+            logger.debug(f"Updated approval for {section}.{subsection}")
+        else:
+            # Insert new record
+            insert_query = """
+                INSERT INTO approved_subsections(document_id, section, subsection, approved_value)
+                VALUES($1, $2, $3, $4);
+            """
+            await conn.execute_query(insert_query, [str(doc.id), section, subsection, data.value])
+            logger.debug(f"Created approval for {section}.{subsection}")
+    except Exception as e:
+        logger.exception(f"Database error during approval: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    
+    # Add a confirmation message to the conversation if requested
+    if data.notify_assistant and doc.thread_id:
+        confirmation_message = (
+            f"I have edited and approved the data for {section} > {subsection}. "
+            f"This information will be included in the final PDF document."
+        )
+        
+        # Add message to conversation history
+        await ChatMessage.create(
+            document=doc,
+            role="user",
+            content=confirmation_message,
+            section=section,
+            subsection=subsection
+        )
+        
+        # Send to OpenAI thread
+        try:
+            # Create a custom client with timeout
+            client = openai.OpenAI(
+                api_key=settings.OPENAI_API_KEY,
+                timeout=30.0
+            )
+            
+            client.beta.threads.messages.create(
+                thread_id=doc.thread_id,
+                role="user",
+                content=confirmation_message
+            )
+        except Exception as e:
+            logger.error(f"Error sending confirmation to OpenAI: {e}")
+    
+    # Return the result
+    return {
+        "document_id": document_id,
+        "section": section,
+        "subsection": subsection,
+        "value": data.value,
+        "approved": True,
+        "message": f"Data for {section} > {subsection} has been updated and approved for the PDF."
+    }
+
+@router.get("/{document_id}/all-section-data")
+async def get_all_section_data(
+    document_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get all section data for a document.
+    This is used to populate the UI with the current status of all sections/subsections.
+    """
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
+    
+    # Get all section data
+    section_data_records = await SectionData.filter(document=doc).all()
+    
+    # Get all approved subsections
+    approved_records = await ApprovedSubsection.filter(document=doc).all()
+    approved_map = {f"{a.section}:{a.subsection}": a.approved_value for a in approved_records}
+    
+    # Prepare the response structure
+    topic = doc.topic
+    if topic not in DOCUMENT_STRUCTURE:
+        raise HTTPException(status_code=400, detail=f"Unknown topic '{topic}'")
+    
+    # Build a structure with all sections/subsections from the document structure
+    result = {}
+    
+    for sec_obj in DOCUMENT_STRUCTURE[topic]:
+        section_name = list(sec_obj.keys())[0]
+        subsections = sec_obj[section_name]
+        
+        section_result = {}
+        for subsection in subsections:
+            # Initialize with empty values
+            section_result[subsection] = {
+                "value": "",
+                "approved": False,
+                "approved_value": ""
+            }
+        
+        result[section_name] = section_result
+    
+    # Fill in actual values from section data
+    for section_record in section_data_records:
+        section = section_record.section
+        if section not in result:
+            # Skip sections not in the document structure
+            continue
+            
+        data = section_record.data
+        if not isinstance(data, dict):
+            continue
+            
+        for subsection, value in data.items():
+            if subsection in result[section]:
+                # Format the value for human readability
+                if isinstance(value, dict):
+                    # Format dictionary into a readable string
+                    formatted_value = ""
+                    for key, val in value.items():
+                        formatted_value += f"{key}: {val}\n"
+                    value = formatted_value.rstrip("\n")
+                elif isinstance(value, list):
+                    # Format list into a bulleted list
+                    formatted_value = ""
+                    for item in value:
+                        formatted_value += f"• {item}\n"
+                    value = formatted_value.rstrip("\n")
+                elif value is None:
+                    value = ""
+                else:
+                    value = str(value)
+                    
+                # Set the value
+                result[section][subsection]["value"] = value
+                
+                # Check if this subsection is approved
+                key = f"{section}:{subsection}"
+                if key in approved_map:
+                    result[section][subsection]["approved"] = True
+                    result[section][subsection]["approved_value"] = approved_map[key]
+    
+    return {
+        "document_id": document_id,
+        "topic": topic,
+        "section_data": result
+    }
+
+@router.get("/{document_id}/subsection-status", response_model=List[SubsectionDataStatus])
+async def get_subsection_status(
+    document_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get a summary of all subsections and their data status.
+    This is used by the UI to show which subsections have data and which are approved.
+    """
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
+    
+    # Get all section data
+    section_data_records = await SectionData.filter(document=doc).all()
+    
+    # Build a map of section/subsection -> has_data
+    data_map = {}
+    for record in section_data_records:
+        section = record.section
+        data = record.data
+        if isinstance(data, dict):
+            for subsection, value in data.items():
+                # Check if value is not empty
+                has_data = False
+                if isinstance(value, (dict, list)):
+                    has_data = bool(value)  # True if not empty
+                else:
+                    has_data = bool(value) if value is not None else False
+                
+                key = f"{section}:{subsection}"
+                data_map[key] = has_data
+    
+    # Get all approved subsections
+    approved_records = await ApprovedSubsection.filter(document=doc).all()
+    approved_map = {f"{a.section}:{a.subsection}": a.approved_value for a in approved_records}
+    
+    # Build the result
+    result = []
+    topic = doc.topic
+    
+    # Iterate through document structure
+    if topic in DOCUMENT_STRUCTURE:
+        for sec_obj in DOCUMENT_STRUCTURE[topic]:
+            section = list(sec_obj.keys())[0]
+            subsections = sec_obj[section]
+            
+            for subsection in subsections:
+                key = f"{section}:{subsection}"
+                has_data = key in data_map and data_map[key]
+                is_approved = key in approved_map
+                
+                result.append(SubsectionDataStatus(
+                    section=section,
+                    subsection=subsection,
+                    has_data=has_data,
+                    is_approved=is_approved,
+                    approved_version=approved_map.get(key) if is_approved else None
+                ))
+    
+    return result

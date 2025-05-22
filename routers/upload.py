@@ -11,6 +11,7 @@ from utils.rate_limiter import RateLimiter
 from utils.auto_pdf_generator import schedule_pdf_generation
 from templates.structure import DOCUMENT_STRUCTURE
 import json
+from config import settings
 
 router = APIRouter()
 logger = logging.getLogger("upload")
@@ -113,6 +114,12 @@ async def process_assistant_response(document_id: str, thread_id: str, topic: st
         from routers.conversation import _run_thread_and_parse, _send_format_correction, _update_section_data
         from templates.structure import DOCUMENT_STRUCTURE
         
+        # Create a custom client with increased timeout
+        client = openai.OpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=120.0  # Increase timeout to 2 minutes
+        )
+        
         # Build a structured representation of the full document template
         structure_description = []
         if topic in DOCUMENT_STRUCTURE:
@@ -141,19 +148,87 @@ async def process_assistant_response(document_id: str, thread_id: str, topic: st
         """
         
         # Send the instruction to the thread
-        openai.beta.threads.messages.create(
+        client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
             content=file_analysis_prompt
         )
         
-        # Run the assistant to process the file
-        data, message = await _run_thread_and_parse(thread_id, topic)
+        # Check for active runs and wait if needed
+        runs = client.beta.threads.runs.list(thread_id=thread_id)
+        runs_list = list(runs)
+        active_run = None
         
-        # If no data was returned, try sending a format correction
-        if not data and message:
-            await _send_format_correction(thread_id, topic)
-            data, message = await _run_thread_and_parse(thread_id, topic)
+        for run in runs_list:
+            if run.status in ["in_progress", "queued"]:
+                active_run = run
+                break
+        
+        # Get the appropriate assistant ID for the topic
+        assistant_id = settings.TOPIC_ASSISTANTS.get(topic)
+        
+        if not assistant_id:
+            default_assistant = settings.ASSISTANT_ID
+            logger.warning(f"No assistant ID found for topic '{topic}'. Using default: {default_assistant}")
+            assistant_id = default_assistant
+        
+        if active_run:
+            logger.warning(f"Thread {thread_id} already has an active run {active_run.id}. Waiting for it to complete.")
+            run = client.beta.threads.runs.retrieve_and_poll(
+                thread_id=thread_id,
+                run_id=active_run.id,
+                poll_interval_ms=500
+            )
+        else:
+            # Create a new run
+            run = client.beta.threads.runs.create_and_poll(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                poll_interval_ms=500
+            )
+        
+        # Get the latest assistant message
+        msgs = client.beta.threads.messages.list(thread_id=thread_id, run_id=run.id)
+        msgs_list = list(msgs)
+        
+        # Combine assistant content
+        raw = ""
+        for m in msgs_list:
+            if m.role == "assistant":
+                content = m.content
+                if isinstance(content, list):
+                    raw = "".join(block.text.value for block in content if hasattr(block, 'text'))
+                else:
+                    raw = content
+                break
+        
+        # Extract data and message
+        data = {}
+        message = raw
+        
+        # Split JSON and human part if possible
+        if raw and raw[0] in ["{", "["]:
+            parts = raw.split('\n\n', 1)
+            
+            if len(parts) > 0:
+                json_part = parts[0]
+                
+                # Extract JSON from markdown code blocks if present
+                if json_part.startswith("```json") or json_part.startswith("```"):
+                    lines = json_part.split("\n")
+                    lines = lines[1:]  # Remove first line with ```
+                    if "```" in lines:
+                        closing_index = lines.index("```")
+                        lines = lines[:closing_index]
+                    json_part = "\n".join(lines)
+                
+                # Parse JSON
+                try:
+                    data = json.loads(json_part)
+                    message = parts[1] if len(parts) > 1 else ""
+                except json.JSONDecodeError:
+                    data = {}
+                    message = raw
         
         # Get document
         doc = await Document.get(id=document_id)
@@ -183,6 +258,7 @@ async def process_assistant_response(document_id: str, thread_id: str, topic: st
     
     except Exception as e:
         logger.error(f"Error processing assistant response for file upload: {str(e)}")
+        logger.exception("Exception details:")
 
 async def update_document_with_extracted_data(document: Document, file_content: bytes, filename: str):
     """
@@ -241,10 +317,10 @@ async def upload_file(
     Upload a file to be associated with a document and attached to its OpenAI thread.
     The file will be used as context for the assistant but will NOT automatically update the document.
     """
-    # Check rate limit
-    allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=error_msg)
+    # Rate limiting disabled
+    # allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
+    # if not allowed:
+    #     raise HTTPException(status_code=429, detail=error_msg)
     
     try:
         # Get document
@@ -312,10 +388,10 @@ async def upload_file_to_message(
     Upload a file and create a message in the conversation referencing it.
     The file will be used only as context for the assistant and will NOT automatically modify any document data.
     """
-    # Check rate limit
-    allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=error_msg)
+    # Rate limiting disabled
+    # allowed, error_msg = await RateLimiter.check_rate_limit(current_user)
+    # if not allowed:
+    #     raise HTTPException(status_code=429, detail=error_msg)
     
     try:
         # Get document

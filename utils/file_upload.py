@@ -132,8 +132,11 @@ async def attach_file_to_thread(thread_id: str, file_id: str, topic: str) -> Dic
             
         logger.debug(f"Using assistant ID {assistant_id} for topic {topic}")
         
-        # Create OpenAI client instance
-        client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        # Create OpenAI client instance with timeout
+        client = openai.OpenAI(
+            api_key=settings.OPENAI_API_KEY, 
+            timeout=60.0  # 60 second timeout
+        )
         
         # First, update the Assistant to ensure it has file_search capability
         # We don't modify any other assistant settings to maintain isolation
