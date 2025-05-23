@@ -338,25 +338,20 @@ async def generate_pdf(
     except HTTPException as e:
         logger.warning(f"Caught HTTPException while getting document data: {e.status_code} - {e.detail}")
         if e.status_code == 404:
-            # Document not found, create a new one
+            # Document not found
             logger.error(f"Document {document_id} not found")
             raise e
         elif approved_only:
-            # If we're looking for approved data but none exists, try with all data
-            logger.info(f"No approved content found, falling back to all section data for {document_id}")
-            try:
-                pdf_data = await get_document_data(document_id, approved_only=False)
-                doc_data[document_id] = pdf_data
-                logger.debug(f"Retrieved fallback data with keys: {list(pdf_data.keys())}")
-            except HTTPException as e2:
-                logger.warning(f"Fallback also failed: {e2.status_code} - {e2.detail}")
-                # If that also fails, create a minimal PDF with just the structure
-                doc = await Document.get(id=document_id)
-                doc_data[document_id] = {
-                    "_topic": doc.topic,
-                    "_section_idx": 0
-                }
-                logger.debug(f"Using minimal data structure for {document_id}")
+            # If we're looking for approved data but none exists, create empty PDF with message
+            logger.info(f"No approved content found for document {document_id}. Creating empty PDF.")
+            doc = await Document.get(id=document_id)
+            doc_data[document_id] = {
+                "_topic": doc.topic,
+                "_section_idx": 0,
+                "_no_approved_content": True,
+                "_message": "No content has been approved for this document yet. Please approve some sections first."
+            }
+            logger.debug(f"Using empty structure for document {document_id} - no approved content")
         else:
             # For any other error, re-raise
             logger.error(f"Error fetching document data: {e.detail}")
@@ -371,7 +366,7 @@ async def generate_pdf(
             pdf_io: BytesIO = await render_pdf_with_attachments(document_id, doc_data)
         else:
             # Use the original function without attachments
-            pdf_io: BytesIO = render_pdf(document_id, doc_data)
+            pdf_io: BytesIO = await render_pdf(document_id, doc_data)
         
         # Store the PDF in the database
         logger.debug(f"PDF rendered successfully, saving to database")

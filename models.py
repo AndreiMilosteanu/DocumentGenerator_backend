@@ -141,3 +141,15 @@ class FileUpload(Model):
 
     class Meta:
         table = "file_uploads"
+
+class CoverPageData(Model):
+    """
+    Stores cover page data for documents. Each document can have customizable cover page fields.
+    """
+    id = fields.IntField(pk=True)
+    document = fields.OneToOneField("models.Document", related_name="cover_page")
+    data = fields.JSONField(default=dict)  # Stores all cover page fields as JSON
+    updated_at = fields.DatetimeField(null=True)  # Manually managed datetime field
+
+    class Meta:
+        table = "cover_page_data"

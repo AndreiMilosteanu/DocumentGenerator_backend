@@ -39,6 +39,24 @@ async def get_document_files(document_id: str) -> List[dict]:
         logger.error(f"Error getting document files: {e}")
         return []
 
+async def get_cover_page_data(document_id: str) -> dict:
+    """
+    Get cover page data for a document
+    """
+    try:
+        from models import Document, CoverPageData
+        
+        doc = await Document.get(id=document_id)
+        cover_page = await CoverPageData.filter(document=doc).first()
+        
+        if cover_page and cover_page.data:
+            return cover_page.data
+        else:
+            return {}
+    except Exception as e:
+        logger.error(f"Error getting cover page data: {e}")
+        return {}
+
 def convert_to_pdf(input_file: bytes, file_type: str, output_path: str) -> bool:
     """
     Convert non-PDF files to PDF format when possible
@@ -173,7 +191,7 @@ async def render_pdf_with_attachments(document_id: str, doc_data: dict) -> Bytes
     try:
         # First, render the main document PDF
         try:
-            main_pdf = render_pdf(document_id, doc_data)
+            main_pdf = await render_pdf(document_id, doc_data)
         except Exception as e:
             logger.error(f"Error rendering main PDF: {e}")
             # Return empty PDF on failure
@@ -340,7 +358,7 @@ def process_raw_structure(structure):
     
     return structure
 
-def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
+async def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
     """
     Render a PDF document based on the topic and document data
     Returns a BytesIO stream containing the rendered PDF
@@ -400,8 +418,15 @@ def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
         else:
             logger.warning(f"No section data found for document {document_id}")
         
-        # Use the template manager to render the appropriate template
-        html_content = template_manager.render_template(topic, document_data, section_data)
+        # Get cover page data
+        cover_page_data = await get_cover_page_data(document_id)
+        if cover_page_data:
+            logger.info(f"Found cover page data with {len(cover_page_data)} categories")
+        else:
+            logger.info("No cover page data found")
+        
+        # Use the template manager to render the appropriate template with cover page data
+        html_content = await template_manager.render_template(topic, document_data, section_data, cover_page_data)
         
         # Determine if we have a custom wkhtmltopdf path
         wkhtml_path = getattr(settings, 'WKHTMLTOPDF_PATH', None)

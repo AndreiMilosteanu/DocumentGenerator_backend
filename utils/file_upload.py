@@ -156,10 +156,14 @@ async def attach_file_to_thread(thread_id: str, file_id: str, topic: str) -> Dic
             f"The content of this document must ONLY be used within this specific thread (ID: {thread_id}). "
             f"Do not reference or use this document's information in any other thread or conversation. "
             f"This file's contents are exclusively for this project and must not affect your responses in other threads.\n\n"
-            f"HANDLING INSTRUCTIONS: Do NOT automatically add any content from this file to the document sections. "
-            f"Instead, help me review the file content through conversation. We will explicitly discuss and decide together "
-            f"which information to include in the document. Only when I specifically approve content for a particular "
-            f"subsection should it be added to the document structure."
+            f"EXTRACTION NOTICE: The system has automatically extracted information from this document and populated both "
+            f"the document sections AND the cover page (Deckblatt) with relevant data found in the file. "
+            f"You can reference this extracted information in our conversation. "
+            f"The cover page fields may now contain project details, addresses, client information, and other relevant data from the uploaded file.\n\n"
+            f"HANDLING INSTRUCTIONS: Do NOT automatically add any additional content from this file to the document sections. "
+            f"Instead, help me review the extracted content through conversation. We will explicitly discuss and decide together "
+            f"if any adjustments or additional information should be added to the document structure or cover page. "
+            f"Only when I specifically approve content for a particular subsection should any changes be made to the document structure."
         )
         
         response = client.beta.threads.messages.create(
@@ -541,4 +545,160 @@ async def extract_document_data_from_file(file_content: bytes, filename: str, to
     except Exception as e:
         logger.error(f"Error extracting structured data from file {filename}: {str(e)}")
         logger.exception("Extraction error details:")
+        return {}
+
+async def extract_cover_page_data_from_file(file_content: bytes, filename: str, topic: str) -> Dict[str, Dict[str, str]]:
+    """
+    Analyze file content and extract cover page (Deckblatt) data that matches the cover page structure for the given topic.
+    This uses OpenAI to intelligently parse the file content and map it to the cover page structure.
+    
+    Returns a dictionary where:
+    - Keys are category names (e.g., "PROJEKTBESCHREIBUNG", "AUFTRAGGEBER", "AUFTRAG")
+    - Values are dictionaries mapping field names to extracted content
+    
+    Example:
+    {
+        "PROJEKTBESCHREIBUNG": {
+            "project_name": "Test Bauvorhaben Berlin",
+            "street": "Musterstraße",
+            "house_number": "123",
+            "postal_code": "10115",
+            "city": "Berlin"
+        },
+        "AUFTRAGGEBER": {
+            "client_company": "Muster GmbH",
+            "client_name": "Max Mustermann"
+        }
+    }
+    """
+    from templates.structure import COVER_PAGE_STRUCTURE
+    
+    # Get the cover page structure for this topic
+    if topic not in COVER_PAGE_STRUCTURE:
+        logger.warning(f"Unknown topic for cover page: {topic}, cannot extract cover page data")
+        return {}
+    
+    topic_structure = COVER_PAGE_STRUCTURE[topic]
+    
+    # Extract the raw text content from the file
+    logger.info(f"Extracting cover page data from file: {filename} for topic: {topic}")
+    raw_content = await extract_file_content(file_content, filename)
+    
+    if not raw_content or (raw_content.startswith('[') and ']' in raw_content and len(raw_content.split()) < 10):
+        # This indicates an error or unsupported file
+        logger.warning(f"Could not extract meaningful text content from file for cover page: {filename}")
+        return {}
+    
+    logger.info(f"Successfully extracted {len(raw_content)} characters from file for cover page analysis")
+    
+    try:
+        # Create OpenAI client instance
+        client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        
+        # Define the system prompt specifically for cover page data extraction
+        system_prompt = """
+        You are an expert document analyzer specialized in extracting cover page information from technical documents. 
+        Your task is to extract specific information that would appear on a document cover page (Deckblatt).
+        
+        IMPORTANT INSTRUCTIONS:
+        1. You will receive raw text content extracted from a document (PDF, DOCX, etc.)
+        2. You will also receive a cover page structure with categories and fields
+        3. Your job is to EXTRACT ACTUAL INFORMATION that would be relevant for a cover page
+        4. Focus on finding: project names, addresses, client information, order numbers, dates, etc.
+        5. Do NOT return empty values or placeholder messages if you find relevant content
+        6. EXTRACT THE ACTUAL DATA from the document - company names, addresses, project titles, etc.
+        7. If there truly is no information for a field, leave it as an empty string
+        
+        For cover page extraction, look specifically for:
+        - Project names, titles, or descriptions
+        - Addresses, streets, postal codes, cities
+        - Company names and client information
+        - Order numbers, reference numbers
+        - Dates (creation dates, sampling dates, etc.)
+        - Author names, signatures
+        - Location-specific information (sampling locations, test locations, etc.)
+        
+        Return ONLY a JSON object with this structure:
+        {
+            "CATEGORY1": {
+                "field1": "Actual extracted value...",
+                "field2": "More extracted data..."
+            },
+            "CATEGORY2": {
+                "field1": "Company name extracted from document..."
+            }
+        }
+        
+        Remember, this is for a COVER PAGE - extract the most important identifying information about the project and client.
+        """
+        
+        # Create the user prompt with cover page specific instructions
+        user_prompt = f"""
+        Please analyze this document content and extract cover page information according to the structure below.
+        Extract ACTUAL INFORMATION that would be suitable for a document cover page - project names, addresses, client info, etc.
+        
+        COVER PAGE STRUCTURE:
+        {json.dumps(topic_structure, indent=2)}
+        
+        DOCUMENT CONTENT:
+        ```
+        {raw_content[:75000]}  # Expanded content limit
+        ```
+        
+        For each category and field in the structure, extract any relevant information found in the document content.
+        Return a JSON object structured exactly like the template (matching the category and field names precisely).
+        
+        Focus on extracting:
+        - Project names and descriptions
+        - Complete addresses (street, house number, postal code, city)
+        - Client company names and contact persons
+        - Order/reference numbers
+        - Important dates
+        - Author/creator information
+        - Location information relevant to the document type
+        
+        For any field where you find information, extract the ACTUAL DATA from the document.
+        Only return empty strings for fields where NO relevant information exists in the document.
+        """
+        
+        logger.info(f"Sending extracted content to GPT model for cover page analysis")
+        
+        # Make the request to OpenAI
+        response = client.chat.completions.create(
+            model=settings.GPT_MODEL,  # Use the model specified in config
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.0,  # Keep it deterministic
+            response_format={"type": "json_object"}  # Ensure JSON response
+        )
+        
+        # Extract the response text
+        result_text = response.choices[0].message.content
+        
+        # Parse the JSON response
+        try:
+            extracted_data = json.loads(result_text)
+            total_categories = len(extracted_data)
+            total_fields = sum(len(fields) for fields in extracted_data.values())
+            
+            logger.info(f"Successfully extracted cover page data: {total_categories} categories with {total_fields} fields")
+            
+            # Debug log a sample of extracted cover page data
+            for category, fields in extracted_data.items():
+                for field_name, content in fields.items():
+                    if content and len(str(content).strip()) > 0:
+                        preview = str(content)[:50] + "..." if len(str(content)) > 50 else str(content)
+                        logger.info(f"Extracted cover page data for {category}.{field_name}: {preview}")
+            
+            return extracted_data
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response for cover page: {e}")
+            logger.error(f"Response text: {result_text[:500]}...")
+            return {}
+            
+    except Exception as e:
+        logger.error(f"Error extracting cover page data from file {filename}: {str(e)}")
+        logger.exception("Cover page extraction error details:")
         return {} 

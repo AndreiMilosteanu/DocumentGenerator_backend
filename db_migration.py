@@ -188,6 +188,19 @@ async def handle_complex_migrations():
         """)
         logger.info("Created approved_subsections table")
     
+    # Create cover_page_data table if it doesn't exist
+    if "cover_page_data" not in existing_tables:
+        await connection.execute_query("""
+            CREATE TABLE IF NOT EXISTS cover_page_data (
+                id SERIAL PRIMARY KEY,
+                document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                data JSONB NOT NULL DEFAULT '{}',
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(document_id)
+            );
+        """)
+        logger.info("Created cover_page_data table")
+    
     # If chat_messages exists but doesn't have section/subsection columns, 
     # we need to set default values for existing rows
     if "chat_messages" in existing_tables:
@@ -394,42 +407,77 @@ async def verify_migration():
 
 async def run_migration():
     """
-    Performs the database migration.
+    Main migration runner that applies all necessary migrations.
     """
-    logger.info("Starting database migration...")
-    
-    # Connect to the database
     await Tortoise.init(
         db_url=settings.DATABASE_URL,
-        modules={'models': ['models']}
+        modules={"models": ["models"]}
     )
     
-    # Check table structure
-    await check_and_create_tables()
+    try:
+        logger.info("Starting database migration...")
+        
+        # Apply base schema migrations
+        await check_and_create_tables()
+        
+        # Apply column migrations
+        await apply_column_migrations()
+        
+        # Apply complex table migrations
+        await handle_complex_migrations()
+        
+        # Apply the cover page datetime fix migration
+        await apply_cover_page_datetime_fix()
+        
+        # Generate schema to handle any remaining updates
+        await Tortoise.generate_schemas()
+        
+        # Verify migration
+        await verify_migration()
+        
+        logger.info("Migration completed successfully!")
+        
+    finally:
+        await Tortoise.close_connections()
+
+async def apply_cover_page_datetime_fix():
+    """
+    Apply the cover page datetime fix migration
+    """
+    connection = connections.get('default')
     
-    # Backup database (PostgreSQL specific)
-    # With PostgreSQL, you'd typically use pg_dump for backups
-    # Here we just log a reminder since we can't directly call pg_dump
-    logger.info("⚠️ Remember to backup your PostgreSQL database before proceeding!")
-    logger.info("   You can use: pg_dump -U username -d database_name > backup_filename.sql")
+    # Check if cover_page_data table exists
+    query = """
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public'
+        AND table_name = 'cover_page_data';
+    """
+    tables = await connection.execute_query(query)
     
-    # Handle complex migrations first
-    await handle_complex_migrations()
-    
-    # Apply any specific column migrations
-    await apply_column_migrations()
-    
-    # Generate schema (this will update tables if they exist)
-    logger.info("Updating schema based on current models...")
-    await Tortoise.generate_schemas(safe=True)
-    
-    # Verify migration was successful
-    await verify_migration()
-    
-    logger.info("Migration completed successfully!")
-    
-    # Close connections
-    await Tortoise.close_connections()
+    if tables[1]:  # Table exists
+        # Check if updated_at column allows NULL
+        column_query = """
+            SELECT is_nullable 
+            FROM information_schema.columns 
+            WHERE table_name = 'cover_page_data' 
+            AND column_name = 'updated_at'
+            AND table_schema = 'public';
+        """
+        column_info = await connection.execute_query(column_query)
+        
+        if column_info[1] and column_info[1][0][0] == 'NO':  # Column is NOT NULL
+            logger.info("Applying cover page datetime fix migration...")
+            
+            # Run the migration SQL directly
+            await connection.execute_query("""
+                ALTER TABLE cover_page_data 
+                ALTER COLUMN updated_at DROP NOT NULL;
+            """)
+            
+            logger.info("Cover page datetime fix migration completed")
+        else:
+            logger.info("Cover page datetime fix already applied")
 
 if __name__ == "__main__":
     # Run the async function

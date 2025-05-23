@@ -81,6 +81,15 @@
         </div>
     {% endif %}
 
+    {% if no_approved_content %}
+        <div class="initial-message">
+            <h3>Keine genehmigten Inhalte</h3>
+            <p>{{ custom_message if custom_message else "Für dieses Dokument wurden noch keine Inhalte genehmigt." }}</p>
+            <p>Bitte genehmigen Sie zuerst einige Abschnitte über die Benutzeroberfläche, um sie im PDF anzuzeigen.</p>
+        </div>
+    {% endif %}
+
+    {% if not no_approved_content %}
     {% for section in structure %}
     <div class="section">
         <div class="section-title">{{ section.title }}</div>
@@ -108,6 +117,7 @@
         {% endif %}
     </div>
     {% endfor %}
+    {% endif %}
 
     <div class="footer">
         {{ title }} Dokument

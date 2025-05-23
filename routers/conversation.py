@@ -6,8 +6,8 @@ import openai
 from tortoise.exceptions import DoesNotExist
 from tortoise import Tortoise
 from config import settings
-from templates.structure import DOCUMENT_STRUCTURE
-from models import Document, SectionData, ChatMessage, ActiveSubsection, ApprovedSubsection, User, Project
+from templates.structure import DOCUMENT_STRUCTURE, COVER_PAGE_STRUCTURE
+from models import Document, SectionData, ChatMessage, ActiveSubsection, ApprovedSubsection, User, Project, CoverPageData
 from utils.auth import get_current_active_user, get_admin_user
 from utils.file_upload import attach_pending_files_to_thread
 from utils.rate_limiter import RateLimiter
@@ -633,6 +633,21 @@ async def start_conversation(
         title = list(sec.keys())[0]
         subs = sec[title]
         prompt_lines.append(f"- {title}: {', '.join(subs)}")
+    
+    # Add cover page structure information
+    if topic in COVER_PAGE_STRUCTURE:
+        prompt_lines.append(f"\nIMPORTANT: This document also has a COVER PAGE (Deckblatt) with the following structure:")
+        cover_structure = COVER_PAGE_STRUCTURE[topic]
+        for category, fields in cover_structure.items():
+            field_names = list(fields.keys())
+            prompt_lines.append(f"- {category}: {', '.join(field_names)}")
+        
+        prompt_lines.append(f"\nCOVER PAGE CAPABILITIES:")
+        prompt_lines.append(f"- When files are uploaded, the system automatically extracts cover page data")
+        prompt_lines.append(f"- You can reference extracted cover page information in conversations")
+        prompt_lines.append(f"- Users can view and edit cover page data through the system")
+        prompt_lines.append(f"- Cover page data includes project details, addresses, client information, etc.")
+        prompt_lines.append(f"- This cover page data is separate from the main document sections")
     
     # Add context for the specific subsection
     prompt_lines.append(
@@ -1952,3 +1967,54 @@ async def get_subsection_status(
                 ))
     
     return result
+
+@router.get("/{document_id}/cover-page-data")
+async def get_cover_page_data_for_conversation(
+    document_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get the current cover page data for a document.
+    This endpoint is used during conversations to access cover page information.
+    """
+    # Check if user has access to this document
+    doc = await _check_document_access(document_id, current_user)
+    
+    try:
+        # Get cover page data from database
+        cover_page = await CoverPageData.filter(document=doc).first()
+        
+        # Get the cover page structure for this topic
+        topic = doc.topic
+        if topic not in COVER_PAGE_STRUCTURE:
+            return {
+                "document_id": document_id,
+                "topic": topic,
+                "cover_page_data": {},
+                "message": f"No cover page structure defined for topic '{topic}'"
+            }
+        
+        cover_structure = COVER_PAGE_STRUCTURE[topic]
+        
+        # Format the response with both structure and current data
+        response_data = {}
+        
+        if cover_page and cover_page.data:
+            # Include actual data from database
+            response_data = cover_page.data
+        else:
+            # Initialize empty structure
+            for category, fields in cover_structure.items():
+                response_data[category] = {field: "" for field in fields.keys()}
+        
+        return {
+            "document_id": document_id,
+            "topic": topic,
+            "cover_page_data": response_data,
+            "cover_page_structure": cover_structure,
+            "message": "Cover page data retrieved successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting cover page data for conversation: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving cover page data: {str(e)}")

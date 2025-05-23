@@ -6,7 +6,7 @@ import logging
 from pydantic import BaseModel, UUID4
 from models import Document, User, FileUpload, FileUploadStatus, ChatMessage, SectionData
 from utils.auth import get_current_active_user
-from utils.file_upload import process_file_upload, FileUploadError, delete_openai_file, extract_file_content, extract_document_data_from_file
+from utils.file_upload import process_file_upload, FileUploadError, delete_openai_file, extract_file_content, extract_document_data_from_file, extract_cover_page_data_from_file
 from utils.rate_limiter import RateLimiter
 from utils.auto_pdf_generator import schedule_pdf_generation
 from templates.structure import DOCUMENT_STRUCTURE
@@ -136,6 +136,10 @@ async def process_assistant_response(document_id: str, thread_id: str, topic: st
         I've uploaded a file for you to analyze. Please examine the content thoroughly and extract ALL relevant information 
         that could be used to populate our document structure. Don't limit yourself to any specific section - instead,
         identify information that fits anywhere in our document template.
+
+        IMPORTANT: The system has also automatically extracted cover page (Deckblatt) information from this file and 
+        populated the cover page fields with relevant project details, addresses, client information, and other data.
+        You can reference this extracted cover page information in our conversation.
 
         Our document structure for topic '{topic}' is:
         {json.dumps(structure_description, indent=2)}
@@ -305,6 +309,77 @@ async def update_document_with_extracted_data(document: Document, file_content: 
         logger.error(f"Error updating document with extracted data: {str(e)}")
         logger.exception("Error details:")
 
+async def update_cover_page_with_extracted_data(document: Document, file_content: bytes, filename: str):
+    """
+    Extract cover page data from the file and update the document's cover page accordingly.
+    This function analyzes the file content and populates the cover page structure with relevant information.
+    """
+    try:
+        # Extract cover page data from the file content based on document topic
+        logger.info(f"Starting cover page data extraction for file '{filename}' with topic '{document.topic}'")
+        extracted_cover_data = await extract_cover_page_data_from_file(file_content, filename, document.topic)
+        
+        if not extracted_cover_data:
+            logger.warning(f"No cover page data could be extracted from file {filename}")
+            return
+        
+        # Log what we extracted
+        categories_with_content = 0
+        fields_with_content = 0
+        
+        for category, fields in extracted_cover_data.items():
+            category_has_content = False
+            for field_name, content in fields.items():
+                if content and len(str(content).strip()) > 0:
+                    fields_with_content += 1
+                    category_has_content = True
+                    logger.info(f"Extracted cover page data for {category}.{field_name}: '{content[:50]}{'...' if len(str(content)) > 50 else ''}'")
+            
+            if category_has_content:
+                categories_with_content += 1
+        
+        if categories_with_content == 0:
+            logger.warning(f"Cover page data extraction completed but no actual content was found in any category")
+            return
+            
+        logger.info(f"Cover page data extraction found content in {categories_with_content} categories and {fields_with_content} fields")
+        
+        # Get or create the cover page data for the document
+        cover_page, created = await CoverPageData.get_or_create(
+            document=document,
+            defaults={"data": {}}
+        )
+        
+        # Merge the extracted data with existing cover page data
+        existing_data = cover_page.data or {}
+        
+        # For each category in the extracted data
+        for category, fields in extracted_cover_data.items():
+            if category not in existing_data:
+                existing_data[category] = {}
+            
+            # For each field in the category, only update if it's currently empty or if the extracted value is better
+            for field_name, extracted_value in fields.items():
+                if extracted_value and len(str(extracted_value).strip()) > 0:
+                    current_value = existing_data[category].get(field_name, "")
+                    
+                    # Update if current value is empty or if extracted value is longer (more detailed)
+                    if not current_value or len(str(extracted_value)) > len(str(current_value)):
+                        existing_data[category][field_name] = str(extracted_value).strip()
+                        logger.info(f"Updated cover page field {category}.{field_name} with extracted value")
+                    else:
+                        logger.debug(f"Keeping existing value for {category}.{field_name} (current: '{current_value[:30]}...')")
+        
+        # Save the updated cover page data
+        cover_page.data = existing_data
+        await cover_page.save()
+        
+        logger.info(f"Successfully updated cover page for document {document.id} with data extracted from {filename}")
+        
+    except Exception as e:
+        logger.error(f"Error updating cover page with extracted data: {str(e)}")
+        logger.exception("Cover page update error details:")
+
 @router.post("/{document_id}/file", response_model=FileUploadResponse)
 async def upload_file(
     document_id: str,
@@ -356,6 +431,19 @@ async def upload_file(
         except Exception as e:
             # In case the file_data field is not yet available in the database
             logger.warning(f"Could not save file_data: {str(e)}. Field may not exist in database yet.")
+        
+        # Extract data from the file and update both document sections and cover page
+        try:
+            # Extract document section data
+            await update_document_with_extracted_data(doc, file_content, file.filename)
+            
+            # Extract cover page data
+            await update_cover_page_with_extracted_data(doc, file_content, file.filename)
+            
+            logger.info(f"Completed data extraction for file {file.filename} - both document sections and cover page updated")
+        except Exception as e:
+            logger.error(f"Error during data extraction for file {file.filename}: {str(e)}")
+            # Don't fail the upload if extraction fails - the file is still uploaded successfully
         
         # Create response
         return FileUploadResponse(
@@ -457,6 +545,19 @@ Do NOT automatically add any content to the document - we'll decide together wha
         except Exception as e:
             # In case the file_data field is not yet available in the database
             logger.warning(f"Could not save file_data: {str(e)}. Field may not exist in database yet.")
+        
+        # Extract data from the file and update both document sections and cover page
+        try:
+            # Extract document section data
+            await update_document_with_extracted_data(doc, file_content, file.filename)
+            
+            # Extract cover page data
+            await update_cover_page_with_extracted_data(doc, file_content, file.filename)
+            
+            logger.info(f"Completed data extraction for file {file.filename} - both document sections and cover page updated")
+        except Exception as e:
+            logger.error(f"Error during data extraction for file {file.filename}: {str(e)}")
+            # Don't fail the upload if extraction fails - the file is still uploaded successfully
         
         # Schedule the assistant to process the file in the background
         background_tasks.add_task(process_assistant_response, doc.id, doc.thread_id, doc.topic, section, subsection)
