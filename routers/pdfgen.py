@@ -321,7 +321,8 @@ async def generate_pdf(
     """
     Generate a PDF from the document structure and content.
     If approved_only=true, then only show content that has been explicitly approved.
-    If include_attachments=true, uploaded files will be appended to the PDF.
+    If include_attachments=true, directly uploaded files (via /upload/{document_id}/file) will be appended to the PDF.
+    Note: Files uploaded via conversation (/upload/{document_id}/message-file) are excluded from PDF attachments.
     """
     # Check if user has access to this document
     doc = await _check_document_access(document_id, current_user)
@@ -398,7 +399,8 @@ async def download_pdf(
     
     Parameters:
     - approved_only: If True (default), only include subsections that have been explicitly approved
-    - include_attachments: If True (default), include uploaded files in the PDF
+    - include_attachments: If True (default), include directly uploaded files (via /upload/{document_id}/file) in the PDF.
+      Files uploaded via conversation (/upload/{document_id}/message-file) are excluded from PDF attachments.
     """
     # Check if user has access to this document
     doc = await _check_document_access(document_id, current_user)

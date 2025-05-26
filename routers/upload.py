@@ -26,6 +26,7 @@ class FileUploadResponse(BaseModel):
     created_at: str
     openai_file_id: Optional[str] = None
     error_message: Optional[str] = None
+    attachment: bool = False  # True if file will be included in PDF attachments (direct upload), False if conversation file
 
 class FileListResponse(BaseModel):
     files: List[FileUploadResponse]
@@ -425,12 +426,9 @@ async def upload_file(
         )
         
         # Keep a copy of the file content for PDF generation
-        try:
-            file_upload.file_data = file_content
-            await file_upload.save()
-        except Exception as e:
-            # In case the file_data field is not yet available in the database
-            logger.warning(f"Could not save file_data: {str(e)}. Field may not exist in database yet.")
+        file_upload.file_data = file_content
+        await file_upload.save()
+        logger.info(f"Saved file_data for {file_upload.original_filename}: {len(file_content)} bytes")
         
         # Extract data from the file and update both document sections and cover page
         try:
@@ -455,7 +453,8 @@ async def upload_file(
             status=file_upload.status,
             created_at=file_upload.created_at.isoformat(),
             openai_file_id=file_upload.openai_file_id,
-            error_message=file_upload.error_message
+            error_message=file_upload.error_message,
+            attachment=True  # Direct uploads are included in PDF attachments
         )
     
     except FileUploadError as e:
@@ -539,12 +538,9 @@ Do NOT automatically add any content to the document - we'll decide together wha
         await file_upload.save()
         
         # Keep a copy of the file content for PDF merging
-        try:
-            file_upload.file_data = file_content
-            await file_upload.save()
-        except Exception as e:
-            # In case the file_data field is not yet available in the database
-            logger.warning(f"Could not save file_data: {str(e)}. Field may not exist in database yet.")
+        file_upload.file_data = file_content
+        await file_upload.save()
+        logger.info(f"Saved file_data for {file_upload.original_filename}: {len(file_content)} bytes")
         
         # Extract data from the file and update both document sections and cover page
         try:
@@ -572,7 +568,8 @@ Do NOT automatically add any content to the document - we'll decide together wha
             status=file_upload.status,
             created_at=file_upload.created_at.isoformat(),
             openai_file_id=file_upload.openai_file_id,
-            error_message=file_upload.error_message
+            error_message=file_upload.error_message,
+            attachment=False  # Conversation uploads are NOT included in PDF attachments
         )
     
     except FileUploadError as e:
@@ -588,6 +585,10 @@ async def list_document_files(
 ):
     """
     List all files uploaded for a document.
+    
+    Returns:
+    - Files uploaded via /upload/{document_id}/file have attachment=True (included in PDF attachments)
+    - Files uploaded via /upload/{document_id}/message-file have attachment=False (conversation only)
     """
     try:
         # Get document
@@ -604,11 +605,17 @@ async def list_document_files(
                 raise HTTPException(status_code=403, detail="Access denied to this document")
         
         # Get all file uploads for this document
-        file_uploads = await FileUpload.filter(document=doc).order_by("-created_at").all()
+        file_uploads = await FileUpload.filter(document=doc).prefetch_related('associated_message').order_by("-created_at").all()
         
         # Format response
         files = []
         for upload in file_uploads:
+            # Calculate attachment status: True if no associated_message_id (direct upload), False if has associated_message_id (conversation upload)
+            is_attachment = upload.associated_message_id is None
+            
+            # Debug logging to help troubleshoot
+            logger.debug(f"File {upload.original_filename}: associated_message_id={upload.associated_message_id}, is_attachment={is_attachment}")
+            
             files.append(FileUploadResponse(
                 id=upload.id,
                 document_id=doc.id,
@@ -618,7 +625,8 @@ async def list_document_files(
                 status=upload.status,
                 created_at=upload.created_at.isoformat(),
                 openai_file_id=upload.openai_file_id,
-                error_message=upload.error_message
+                error_message=upload.error_message,
+                attachment=is_attachment
             ))
         
         return FileListResponse(
@@ -681,6 +689,10 @@ async def get_file_status(
 ):
     """
     Get the status of a file upload.
+    
+    The attachment field indicates whether the file will be included in PDF attachments:
+    - True: Direct upload (via /upload/{document_id}/file) - included in PDF
+    - False: Conversation upload (via /upload/{document_id}/message-file) - conversation only
     """
     try:
         # Get file upload
@@ -707,7 +719,8 @@ async def get_file_status(
             status=file_upload.status,
             created_at=file_upload.created_at.isoformat(),
             openai_file_id=file_upload.openai_file_id,
-            error_message=file_upload.error_message
+            error_message=file_upload.error_message,
+            attachment=file_upload.associated_message_id is None  # True if direct upload, False if conversation upload
         )
     
     except Exception as e:

@@ -1,7 +1,6 @@
 # Document structure for different topics
 DOCUMENT_STRUCTURE = {
     'Deklarationsanalyse': [
-        {'Deckblatt':    ['Projekt', 'Auftraggeber', 'Dienstleistungsnummer', 'Probenahmedatum']},
         {'Stellungnahme': ['Probenahmeprotokoll', 'Laborberichte', 'Auswertung']},
         {'Anhänge':      ['Dateien']}
     ],

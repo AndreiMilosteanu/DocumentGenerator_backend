@@ -22,7 +22,8 @@ logger = logging.getLogger("pdf_renderer")
 
 async def get_document_files(document_id: str) -> List[dict]:
     """
-    Get all uploaded files for a document that are in READY status
+    Get only directly uploaded files for a document that are in READY status.
+    Excludes files uploaded via conversation (message-file endpoint) which have associated_message set.
     """
     try:
         # Need to import here to avoid circular import
@@ -31,9 +32,11 @@ async def get_document_files(document_id: str) -> List[dict]:
         doc = await Document.get(id=document_id)
         files = await FileUpload.filter(
             document=doc,
-            status=FileUploadStatus.READY
+            status=FileUploadStatus.READY,
+            associated_message=None  # Only include files without associated messages (direct uploads)
         ).all()
         
+        logger.info(f"Found {len(files)} directly uploaded files (excluding conversation files) for document {document_id}")
         return files
     except Exception as e:
         logger.error(f"Error getting document files: {e}")
@@ -185,7 +188,9 @@ def merge_pdfs(main_pdf_path: str, additional_pdfs: List[str], output_path: str)
 
 async def render_pdf_with_attachments(document_id: str, doc_data: dict) -> BytesIO:
     """
-    Render a PDF for the document and append any uploaded files
+    Render a PDF for the document and append any directly uploaded files.
+    Only includes files uploaded via /upload/{document_id}/file endpoint.
+    Files uploaded via conversation (/upload/{document_id}/message-file) are excluded.
     Returns a BytesIO stream containing the merged PDF
     """
     try:
@@ -199,12 +204,21 @@ async def render_pdf_with_attachments(document_id: str, doc_data: dict) -> Bytes
         
         # Get all uploaded files for this document
         files = await get_document_files(document_id)
+        logger.info(f"get_document_files returned {len(files)} files for document {document_id}")
         
         # Check if we have files with binary data
         files_with_data = [f for f in files if hasattr(f, 'file_data') and f.file_data]
+        logger.info(f"Found {len(files_with_data)} files with binary data out of {len(files)} total files")
         
         if not files_with_data:
-            # No attachments with data to append, return the main PDF
+            # Log details about why files were excluded
+            for i, file in enumerate(files):
+                has_attr = hasattr(file, 'file_data')
+                has_data = file.file_data is not None if has_attr else False
+                data_size = len(file.file_data) if has_data else 0
+                logger.warning(f"File {i+1} ({file.original_filename}): has_file_data_attr={has_attr}, has_data={has_data}, size={data_size}")
+            
+            logger.warning("No attachments with data to append, returning the main PDF")
             return main_pdf
         
         # Create temporary files
