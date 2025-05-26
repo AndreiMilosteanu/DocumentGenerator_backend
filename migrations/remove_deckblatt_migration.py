@@ -15,9 +15,20 @@ import os
 from pathlib import Path
 
 # Add the parent directory to the Python path to import project modules
-sys.path.append(str(Path(__file__).parent.parent))
+parent_dir = str(Path(__file__).parent.parent)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 
-from models import SectionData, Document, ApprovedSubsection
+# Import from the main models module (not the migrations/models)
+try:
+    from models import SectionData, Document, ApprovedSubsection
+except ImportError as e:
+    print(f"Import error: {e}")
+    print("Make sure you're running this script from the project root directory")
+    print("Current working directory:", os.getcwd())
+    print("Script location:", Path(__file__).parent.parent)
+    sys.exit(1)
+
 from tortoise import Tortoise
 from config import settings
 
@@ -167,11 +178,17 @@ if __name__ == "__main__":
     print("Deckblatt sections in other document types (like Baugrundgutachten) will remain unchanged.")
     print()
     
-    # Ask for confirmation
-    response = input("Continue with the migration? (y/N): ")
-    if response.lower() != 'y':
-        print("Migration cancelled.")
-        exit(0)
+    # Check for auto-confirm flag
+    auto_confirm = len(sys.argv) > 1 and sys.argv[1] == "--yes"
+    
+    if not auto_confirm:
+        # Ask for confirmation
+        response = input("Continue with the migration? (y/N): ")
+        if response.lower() != 'y':
+            print("Migration cancelled.")
+            exit(0)
+    else:
+        print("Auto-confirming migration (--yes flag provided)")
     
     # Run the migration
     result = asyncio.run(remove_deckblatt_sections())
