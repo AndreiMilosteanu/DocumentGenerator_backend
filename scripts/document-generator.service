@@ -1,0 +1,28 @@
+[Unit]
+Description=Document Generator Backend
+After=network.target
+
+[Service]
+Type=simple
+User=your-app-user
+Group=your-app-group
+WorkingDirectory=/path/to/your/DocumentGenerator_backend
+ExecStart=/path/to/your/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+
+# PDF Environment Variables for consistent rendering
+Environment=QT_QPA_PLATFORM=offscreen
+Environment=DISPLAY=:99
+Environment=QT_QPA_FONTDIR=/usr/share/fonts
+Environment=FONTCONFIG_PATH=/etc/fonts
+Environment=WKHTMLTOPDF_PATH=/usr/bin/wkhtmltopdf
+
+# Application Environment Variables (add your existing ones here)
+Environment=OPENAI_API_KEY=your-openai-key
+Environment=DATABASE_URL=your-database-url
+# Add other environment variables as needed
+
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target 

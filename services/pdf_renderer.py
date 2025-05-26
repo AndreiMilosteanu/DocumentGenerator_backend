@@ -442,9 +442,37 @@ async def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
         # Use the template manager to render the appropriate template with cover page data
         html_content = await template_manager.render_template(topic, document_data, section_data, cover_page_data)
         
-        # Determine if we have a custom wkhtmltopdf path
-        wkhtml_path = getattr(settings, 'WKHTMLTOPDF_PATH', None)
-        wkhtml_path = str(wkhtml_path) if wkhtml_path is not None else None
+        # Determine wkhtmltopdf path with environment variable support
+        wkhtml_path = None
+        
+        # First, check if WKHTMLTOPDF_PATH environment variable is set
+        env_path = os.environ.get('WKHTMLTOPDF_PATH')
+        if env_path and Path(env_path).exists():
+            wkhtml_path = env_path
+            logger.debug(f"Using wkhtmltopdf from environment variable: {wkhtml_path}")
+        else:
+            # Fall back to settings
+            settings_path = getattr(settings, 'WKHTMLTOPDF_PATH', None)
+            if settings_path and Path(str(settings_path)).exists():
+                wkhtml_path = str(settings_path)
+                logger.debug(f"Using wkhtmltopdf from settings: {wkhtml_path}")
+            else:
+                # Try common system paths
+                common_paths = [
+                    "/usr/bin/wkhtmltopdf",  # Most common on Linux
+                    "/usr/local/bin/wkhtmltopdf",  # Alternative Linux path
+                    "C:\\Program Files\\wkhtmltopdf\\bin\\wkhtmltopdf.exe",  # Windows
+                ]
+                
+                for path in common_paths:
+                    if Path(path).exists():
+                        wkhtml_path = path
+                        logger.debug(f"Found wkhtmltopdf at system path: {wkhtml_path}")
+                        break
+                
+                if not wkhtml_path:
+                    # Last resort: assume it's in PATH
+                    logger.warning("wkhtmltopdf path not found, assuming it's in system PATH")
         
         # Configure PDF options with robust settings for consistent rendering
         options = {
@@ -475,6 +503,9 @@ async def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
             'viewport-size': '1024x768',  # Set consistent viewport
             'zoom': '1.0',  # Ensure 1:1 zoom ratio
         }
+        
+        # Log the configuration being used
+        logger.info(f"Rendering PDF with wkhtmltopdf path: {wkhtml_path or 'system PATH'}")
         
         # Render PDF using wkhtmltopdf
         pdf_data = pdfkit.from_string(
