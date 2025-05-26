@@ -2,22 +2,6 @@
 # JSON schema definitions for each section's function calling
 
 SECTION_FUNCTIONS = {
-    # 'Deckblatt' section for Deklarationsanalyse
-    "Deckblatt": {
-        "name": "fill_deckblatt",
-        "description": "Populate the Deckblatt (cover page) section for the document.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "Projekt": {"type": "string", "description": "Project name or identifier"},
-                "Auftraggeber": {"type": "string", "description": "Client name"},
-                "Dienstleistungsnummer": {"type": "string", "description": "Service number"},
-                "Probenahmedatum": {"type": "string", "description": "Date of sampling"}
-            },
-            "required": []
-        }
-    },
-
     # 'Stellungnahme' section for Deklarationsanalyse
     "Stellungnahme": {
         "name": "fill_stellungnahme",

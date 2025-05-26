@@ -28,119 +28,65 @@ async def init_db():
         modules={'models': ['models']}
     )
 
-async def fix_invalid_structure():
+async def check_deklarationsanalyse_structure():
     """
-    Find and fix invalid structure in section_data records for Deklarationsanalyse documents.
-    Specifically fixing incorrect structure in "Deckblatt" section.
+    Check the current structure of Deklarationsanalyse documents.
+    Note: Deckblatt sections have been removed from Deklarationsanalyse as of the latest migration.
     """
     # Get all documents with topic Deklarationsanalyse
     docs = await Document.filter(topic="Deklarationsanalyse").all()
     logger.info(f"Found {len(docs)} Deklarationsanalyse documents")
     
-    fixed_count = 0
+    # Expected sections for Deklarationsanalyse (after Deckblatt removal)
+    expected_sections = ["Stellungnahme", "Anhänge"]
     
     for doc in docs:
-        # Get section data for this document
-        section_data = await SectionData.filter(document=doc, section="Deckblatt").first()
+        # Get all section data for this document
+        sections = await SectionData.filter(document=doc).all()
+        section_names = [s.section for s in sections]
         
-        if not section_data:
-            logger.warning(f"Document {doc.id} has no Deckblatt section data")
-            continue
+        logger.info(f"Document {doc.id}: sections = {section_names}")
         
-        data = section_data.data
-        modified = False
+        # Check for any unexpected Deckblatt sections (should not exist)
+        if "Deckblatt" in section_names:
+            logger.warning(f"WARNING: Document {doc.id} still has a Deckblatt section! This should have been removed.")
         
-        # Check and fix the Projekt field
-        if "Projekt" in data and isinstance(data["Projekt"], dict):
-            if data["Projekt"] and "Name" in data["Projekt"]:
-                # Fix nested structure: {"Projekt": {"Name": "Value"}} -> {"Projekt": "Value"}
-                data["Projekt"] = data["Projekt"]["Name"]
-                logger.info(f"Fixed Projekt field for document {doc.id}")
-                modified = True
-            elif not data["Projekt"]:
-                # Empty dict -> empty string
-                data["Projekt"] = ""
-                logger.info(f"Fixed empty Projekt dict for document {doc.id}")
-                modified = True
-        
-        # Check and fix the Auftraggeber field
-        if "Auftraggeber" in data and isinstance(data["Auftraggeber"], dict):
-            if data["Auftraggeber"] and "Name" in data["Auftraggeber"]:
-                # Fix nested structure: {"Auftraggeber": {"Name": "Value"}} -> {"Auftraggeber": "Value"}
-                data["Auftraggeber"] = data["Auftraggeber"]["Name"]
-                logger.info(f"Fixed Auftraggeber field for document {doc.id}")
-                modified = True
-            elif not data["Auftraggeber"]:
-                # Empty dict -> empty string
-                data["Auftraggeber"] = ""
-                logger.info(f"Fixed empty Auftraggeber dict for document {doc.id}")
-                modified = True
-        
-        # Check and fix the Dienstleistungsnummer field
-        if "Dienstleistungsnummer" in data and isinstance(data["Dienstleistungsnummer"], dict):
-            if data["Dienstleistungsnummer"] and "Name" in data["Dienstleistungsnummer"]:
-                data["Dienstleistungsnummer"] = data["Dienstleistungsnummer"]["Name"]
-                logger.info(f"Fixed Dienstleistungsnummer field for document {doc.id}")
-                modified = True
-            elif not data["Dienstleistungsnummer"]:
-                data["Dienstleistungsnummer"] = ""
-                logger.info(f"Fixed empty Dienstleistungsnummer dict for document {doc.id}")
-                modified = True
-        
-        # Check and fix the Probenahmedatum field
-        if "Probenahmedatum" in data and isinstance(data["Probenahmedatum"], dict):
-            if data["Probenahmedatum"] and "Name" in data["Probenahmedatum"]:
-                data["Probenahmedatum"] = data["Probenahmedatum"]["Name"]
-                logger.info(f"Fixed Probenahmedatum field for document {doc.id}")
-                modified = True
-            elif not data["Probenahmedatum"]:
-                data["Probenahmedatum"] = ""
-                logger.info(f"Fixed empty Probenahmedatum dict for document {doc.id}")
-                modified = True
-        
-        # Save if modified
-        if modified:
-            logger.info(f"Saving fixed data for document {doc.id}: {json.dumps(data, indent=2)}")
-            section_data.data = data
-            await section_data.save()
-            fixed_count += 1
-        else:
-            logger.info(f"No invalid structure found for document {doc.id}")
-    
-    logger.info(f"Fixed structure for {fixed_count} documents")
-    return fixed_count
+        # Check for expected sections
+        for expected in expected_sections:
+            if expected in section_names:
+                section_data = await SectionData.filter(document=doc, section=expected).first()
+                if section_data and section_data.data:
+                    logger.info(f"  {expected}: {len(section_data.data)} subsections")
+                else:
+                    logger.info(f"  {expected}: empty or no data")
+            else:
+                logger.info(f"  {expected}: missing")
 
-async def show_section_data():
+async def show_document_structure():
     """
-    Show the structure of Deckblatt section data for all Deklarationsanalyse documents
+    Show the current document structure for Deklarationsanalyse
     """
-    docs = await Document.filter(topic="Deklarationsanalyse").all()
-    
-    for doc in docs:
-        section_data = await SectionData.filter(document=doc, section="Deckblatt").first()
-        
-        if section_data:
-            logger.info(f"Document {doc.id} Deckblatt data: {json.dumps(section_data.data, indent=2)}")
-        else:
-            logger.info(f"Document {doc.id} has no Deckblatt section data")
+    logger.info("Current DOCUMENT_STRUCTURE for Deklarationsanalyse:")
+    if "Deklarationsanalyse" in DOCUMENT_STRUCTURE:
+        structure = DOCUMENT_STRUCTURE["Deklarationsanalyse"]
+        logger.info(json.dumps(structure, indent=2))
+    else:
+        logger.warning("Deklarationsanalyse not found in DOCUMENT_STRUCTURE")
 
 async def main():
     await init_db()
     
     try:
-        # First show the current state
-        logger.info("Current section data structure:")
-        await show_section_data()
+        # Show the current document structure
+        await show_document_structure()
         
-        # Fix invalid structure
-        fixed_count = await fix_invalid_structure()
+        # Check the current state of documents
+        logger.info("\nChecking current document structure:")
+        await check_deklarationsanalyse_structure()
         
-        if fixed_count > 0:
-            # Show the fixed state
-            logger.info("Section data structure after fixes:")
-            await show_section_data()
+        logger.info("\nNote: Deckblatt sections have been removed from Deklarationsanalyse documents.")
+        logger.info("The current structure should only contain 'Stellungnahme' and 'Anhänge' sections.")
         
-        logger.info("Done!")
     finally:
         await Tortoise.close_connections()
 
