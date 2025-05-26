@@ -446,7 +446,7 @@ async def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
         wkhtml_path = getattr(settings, 'WKHTMLTOPDF_PATH', None)
         wkhtml_path = str(wkhtml_path) if wkhtml_path is not None else None
         
-        # Configure PDF options
+        # Configure PDF options with robust settings for consistent rendering
         options = {
             'page-size': 'A4',
             'margin-top': '20mm',
@@ -456,11 +456,24 @@ async def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
             'encoding': 'UTF-8',
             'footer-center': '[page] / [topage]',
             'footer-font-size': '9',
+            'footer-spacing': '5',
             'quiet': '',
             'disable-smart-shrinking': '',  # Force exact rendering of contents
             'enable-local-file-access': '',  # Needed in some environments
             'print-media-type': '',  # Use print media CSS
             'page-offset': '0',  # Start page numbering at 1
+            'no-pdf-compression': '',  # Disable compression for consistency
+            'minimum-font-size': '8',  # Ensure minimum font size
+            'dpi': '300',  # High DPI for consistent rendering
+            'image-dpi': '300',  # High DPI for images
+            'image-quality': '100',  # Maximum image quality
+            'load-error-handling': 'ignore',  # Handle missing resources gracefully
+            'load-media-error-handling': 'ignore',  # Handle missing media gracefully
+            'disable-javascript': '',  # Disable JS for consistent rendering
+            'no-stop-slow-scripts': '',  # Don't stop on slow scripts
+            'debug-javascript': '',  # Enable JS debugging if needed
+            'viewport-size': '1024x768',  # Set consistent viewport
+            'zoom': '1.0',  # Ensure 1:1 zoom ratio
         }
         
         # Render PDF using wkhtmltopdf
