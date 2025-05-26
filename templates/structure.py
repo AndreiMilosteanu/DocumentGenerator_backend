@@ -31,6 +31,7 @@ DOCUMENT_STRUCTURE = {
 COVER_PAGE_STRUCTURE = {
     'Baugrundgutachten': {
         'PROJEKTBESCHREIBUNG': {
+            'document_subtitle': {'label': 'Dokumentuntertitel', 'type': 'text', 'required': False, 'default': 'NACH DIN 4020'},
             'project_name': {'label': 'Projektname', 'type': 'text', 'required': True},
             'project_line2': {'label': 'Projektbeschreibung Zeile 2', 'type': 'text', 'required': False},
             'property_info': {'label': 'Flurstück / Gemarkung', 'type': 'text', 'required': False},
@@ -55,6 +56,7 @@ COVER_PAGE_STRUCTURE = {
     },
     'Deklarationsanalyse': {
         'PROJEKTBESCHREIBUNG': {
+            'document_subtitle': {'label': 'Dokumentuntertitel', 'type': 'text', 'required': False, 'default': 'NACH DEPV'},
             'project_name': {'label': 'Projektname', 'type': 'text', 'required': True},
             'project_line2': {'label': 'Projektbeschreibung Zeile 2', 'type': 'text', 'required': False},
             'property_info': {'label': 'Flurstück / Gemarkung', 'type': 'text', 'required': False},
@@ -79,6 +81,7 @@ COVER_PAGE_STRUCTURE = {
     },
     'Bodenuntersuchung': {
         'PROJEKTBESCHREIBUNG': {
+            'document_subtitle': {'label': 'Dokumentuntertitel', 'type': 'text', 'required': False, 'default': 'NACH DIN 18196'},
             'project_name': {'label': 'Projektname', 'type': 'text', 'required': True},
             'project_line2': {'label': 'Projektbeschreibung Zeile 2', 'type': 'text', 'required': False},
             'property_info': {'label': 'Flurstück / Gemarkung', 'type': 'text', 'required': False},
@@ -108,6 +111,7 @@ COVER_PAGE_STRUCTURE = {
     },
     'Plattendruckversuch': {
         'PROJEKTBESCHREIBUNG': {
+            'document_subtitle': {'label': 'Dokumentuntertitel', 'type': 'text', 'required': False, 'default': 'NACH DIN 18134'},
             'project_name': {'label': 'Projektname', 'type': 'text', 'required': True},
             'project_line2': {'label': 'Projektbeschreibung Zeile 2', 'type': 'text', 'required': False},
             'property_info': {'label': 'Flurstück / Gemarkung', 'type': 'text', 'required': False},

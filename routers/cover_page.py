@@ -190,8 +190,10 @@ async def get_cover_page_data(
             structure = COVER_PAGE_STRUCTURE[topic]
             for category_name, fields in structure.items():
                 data[category_name] = {}
-                for field_name in fields.keys():
-                    data[category_name][field_name] = ""
+                for field_name, field_info in fields.items():
+                    # Use default value if specified, otherwise empty string
+                    default_value = field_info.get('default', '')
+                    data[category_name][field_name] = default_value
     
     return CoverPageDataResponse(
         document_id=document_id,

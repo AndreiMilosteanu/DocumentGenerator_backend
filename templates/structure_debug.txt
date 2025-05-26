@@ -118,6 +118,12 @@ COVER_PAGE_STRUCTURE:
 {
   "Baugrundgutachten": {
     "PROJEKTBESCHREIBUNG": {
+      "document_subtitle": {
+        "label": "Dokumentuntertitel",
+        "type": "text",
+        "required": false,
+        "default": "NACH DIN 4020"
+      },
       "project_name": {
         "label": "Projektname",
         "type": "text",
@@ -206,6 +212,12 @@ COVER_PAGE_STRUCTURE:
   },
   "Deklarationsanalyse": {
     "PROJEKTBESCHREIBUNG": {
+      "document_subtitle": {
+        "label": "Dokumentuntertitel",
+        "type": "text",
+        "required": false,
+        "default": "NACH DEPV"
+      },
       "project_name": {
         "label": "Projektname",
         "type": "text",
@@ -294,6 +306,12 @@ COVER_PAGE_STRUCTURE:
   },
   "Bodenuntersuchung": {
     "PROJEKTBESCHREIBUNG": {
+      "document_subtitle": {
+        "label": "Dokumentuntertitel",
+        "type": "text",
+        "required": false,
+        "default": "NACH DIN 18196"
+      },
       "project_name": {
         "label": "Projektname",
         "type": "text",
@@ -399,6 +417,12 @@ COVER_PAGE_STRUCTURE:
   },
   "Plattendruckversuch": {
     "PROJEKTBESCHREIBUNG": {
+      "document_subtitle": {
+        "label": "Dokumentuntertitel",
+        "type": "text",
+        "required": false,
+        "default": "NACH DIN 18134"
+      },
       "project_name": {
         "label": "Projektname",
         "type": "text",
