@@ -479,12 +479,14 @@ async def render_pdf(document_id: str, doc_data: dict) -> BytesIO:
             'page-size': 'A4',
             'margin-top': '20mm',
             'margin-right': '20mm',
-            'margin-bottom': '20mm',
+            'margin-bottom': '25mm',  # Margin for wkhtmltopdf footer
             'margin-left': '20mm',
             'encoding': 'UTF-8',
-            'footer-center': '[page] / [topage]',
+            'footer-center': 'Erdbaron HQ SRL | Preot Bacca 15 | 55065 Hermannstadt',
+            'footer-right': '[page] / [topage]',
             'footer-font-size': '9',
-            'footer-spacing': '5',
+            'footer-spacing': '10',
+            'footer-line': '',  # Add a line above the footer
             'quiet': '',
             'disable-smart-shrinking': '',  # Force exact rendering of contents
             'enable-local-file-access': '',  # Needed in some environments

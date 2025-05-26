@@ -7,10 +7,15 @@
         @page {
             margin: 2.5cm 2.5cm 2.5cm 2.5cm;
         }
+        @page:first {
+            @bottom-center {
+                content: "";
+            }
+        }
         body {
             font-family: Arial, sans-serif;
             line-height: 1.5;
-            font-size: 11pt;
+            font-size: 12pt;
             margin: 0;
             padding: 0;
         }
@@ -21,63 +26,55 @@
         }
         .header-banner {
             background-color: #f2f2f2;
-            padding: 30px 40px;
+            padding: 35px 45px;
             border-radius: 0 0 10px 10px;
-            margin-bottom: 40px;
+            margin-bottom: 45px;
             position: relative;
             overflow: hidden;
         }
         .header-image {
             position: absolute;
-            right: 40px;
-            top: 20px;
-            width: 120px;
+            right: 45px;
+            top: 25px;
+            width: 130px;
         }
         .cover-title {
-            font-size: 24pt;
+            font-size: 28pt;
             font-weight: bold;
             color: #555;
         }
         .cover-subtitle {
-            font-size: 14pt;
-            margin-top: 5px;
+            font-size: 16pt;
+            margin-top: 8px;
             color: #777;
         }
         .content-section {
-            padding: 0 40px;
-            margin-bottom: 30px;
+            padding: 0 45px;
+            margin-bottom: 35px;
         }
         .section-label {
-            font-size: 10pt;
+            font-size: 12pt;
             text-transform: uppercase;
             color: #555;
-            margin-bottom: 5px;
+            margin-bottom: 8px;
             font-weight: bold;
         }
         .section-value {
-            font-size: 12pt;
+            font-size: 14pt;
             color: #333;
-            margin-bottom: 3px;
+            margin-bottom: 5px;
         }
         .divider {
             height: 1px;
             background-color: #eee;
-            margin: 20px 0;
+            margin: 25px 0;
         }
         .signature-box {
             background-color: #f8f8f8;
-            padding: 20px;
-            margin-top: 40px;
-            width: 200px;
-        }
-        .footer {
-            position: absolute;
-            bottom: 30px;
-            left: 0;
-            width: 100%;
-            text-align: center;
-            font-size: 9pt;
-            color: #777;
+            padding: 25px;
+            margin-top: 45px;
+            width: 220px;
+            font-size: 12pt;
         }
         .toc-page {
             page-break-before: always;
@@ -85,68 +82,66 @@
             min-height: 100vh;
         }
         .toc-title {
-            font-size: 16pt;
+            font-size: 20pt;
             font-weight: bold;
             margin-top: 40px;
-            margin-bottom: 30px;
+            margin-bottom: 35px;
             text-align: center;
+            color: #555;
         }
         .toc-entry {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 10px;
-            font-size: 10pt;
+            margin-bottom: 12px;
+            font-size: 12pt;
         }
         .toc-link {
             font-weight: normal;
         }
         .toc-section {
             font-weight: bold;
+            font-size: 13pt;
         }
         .toc-dots {
             flex-grow: 1;
             border-bottom: 1px dotted #000;
-            margin: 0 5px;
+            margin: 0 8px;
             position: relative;
             top: -5px;
         }
         .section-title {
-            font-size: 14pt;
+            font-size: 16pt;
             font-weight: bold;
-            margin-top: 30px;
-            margin-bottom: 15px;
+            margin-top: 35px;
+            margin-bottom: 18px;
             page-break-after: avoid;
+            color: #444;
         }
         .subsection-title {
-            font-size: 12pt;
+            font-size: 14pt;
             font-weight: bold;
-            margin-top: 20px;
-            margin-bottom: 10px;
+            margin-top: 25px;
+            margin-bottom: 12px;
             page-break-after: avoid;
+            color: #555;
         }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin: 15px 0;
+            margin: 18px 0;
         }
         th, td {
             border: 1px solid #ddd;
-            padding: 8px;
+            padding: 10px;
             text-align: left;
+            font-size: 11pt;
         }
         th {
             background-color: #f2f2f2;
+            font-weight: bold;
         }
         .page-break {
             page-break-before: always;
-        }
-        .document-footer {
-            position: fixed;
-            bottom: 0;
-            width: 100%;
-            text-align: center;
-            font-size: 9pt;
-            color: #777;
         }
         .chart-container {
             width: 80%;
@@ -216,11 +211,6 @@
                 {{ signature_name|default('    ') }}
             </div>
         </div>
-        
-        <!-- Footer -->
-        <div class="footer">
-            {{ company_info|default('Erdbaron HQ SRL | Prost Becca 15 | 55065 Hermannstadt') }}
-        </div>
     </div>
 
     <!-- Table of Contents -->
@@ -236,7 +226,7 @@
                 </div>
                 
                 {% for subsection in subsections %}
-                    <div class="toc-entry" style="margin-left: 20px;">
+                    <div class="toc-entry" style="margin-left: 25px;">
                         <span class="toc-link">{{ outer_loop_index }}.{{ loop.index }} {{ subsection }}</span>
                         <span class="toc-dots"></span>
                     </div>
@@ -280,10 +270,5 @@
             {% endif %}
         {% endfor %}
     {% endfor %}
-
-    <!-- Footer -->
-    <div class="document-footer">
-        Plattendruckversuch | {{ project_name|default('Projektname') }} | Seite <span class="page"></span>
-    </div>
 </body>
 </html> 
