@@ -135,7 +135,7 @@ async def attach_file_to_thread(thread_id: str, file_id: str, topic: str) -> Dic
         # Create OpenAI client instance with timeout
         client = openai.OpenAI(
             api_key=settings.OPENAI_API_KEY, 
-            timeout=60.0  # 60 second timeout
+            timeout=120.0  # 120 second timeout
         )
         
         # First, update the Assistant to ensure it has file_search capability

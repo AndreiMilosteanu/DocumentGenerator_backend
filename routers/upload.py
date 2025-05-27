@@ -10,6 +10,7 @@ from utils.file_upload import process_file_upload, FileUploadError, delete_opena
 from utils.rate_limiter import RateLimiter
 from utils.auto_pdf_generator import schedule_pdf_generation
 from templates.structure import DOCUMENT_STRUCTURE
+from services.openai_client_optimized import get_optimized_client
 import json
 from config import settings
 
@@ -116,10 +117,7 @@ async def process_assistant_response(document_id: str, thread_id: str, topic: st
         from templates.structure import DOCUMENT_STRUCTURE
         
         # Create a custom client with increased timeout
-        client = openai.OpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            timeout=120.0  # Increase timeout to 2 minutes
-        )
+        client = get_optimized_client()
         
         # Build a structured representation of the full document template
         structure_description = []
@@ -153,87 +151,10 @@ async def process_assistant_response(document_id: str, thread_id: str, topic: st
         """
         
         # Send the instruction to the thread
-        client.beta.threads.messages.create(
-            thread_id=thread_id,
-            role="user",
-            content=file_analysis_prompt
-        )
+        await client.send_message_optimized(thread_id, file_analysis_prompt)
         
-        # Check for active runs and wait if needed
-        runs = client.beta.threads.runs.list(thread_id=thread_id)
-        runs_list = list(runs)
-        active_run = None
-        
-        for run in runs_list:
-            if run.status in ["in_progress", "queued"]:
-                active_run = run
-                break
-        
-        # Get the appropriate assistant ID for the topic
-        assistant_id = settings.TOPIC_ASSISTANTS.get(topic)
-        
-        if not assistant_id:
-            default_assistant = settings.ASSISTANT_ID
-            logger.warning(f"No assistant ID found for topic '{topic}'. Using default: {default_assistant}")
-            assistant_id = default_assistant
-        
-        if active_run:
-            logger.warning(f"Thread {thread_id} already has an active run {active_run.id}. Waiting for it to complete.")
-            run = client.beta.threads.runs.retrieve_and_poll(
-                thread_id=thread_id,
-                run_id=active_run.id,
-                poll_interval_ms=500
-            )
-        else:
-            # Create a new run
-            run = client.beta.threads.runs.create_and_poll(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                poll_interval_ms=500
-            )
-        
-        # Get the latest assistant message
-        msgs = client.beta.threads.messages.list(thread_id=thread_id, run_id=run.id)
-        msgs_list = list(msgs)
-        
-        # Combine assistant content
-        raw = ""
-        for m in msgs_list:
-            if m.role == "assistant":
-                content = m.content
-                if isinstance(content, list):
-                    raw = "".join(block.text.value for block in content if hasattr(block, 'text'))
-                else:
-                    raw = content
-                break
-        
-        # Extract data and message
-        data = {}
-        message = raw
-        
-        # Split JSON and human part if possible
-        if raw and raw[0] in ["{", "["]:
-            parts = raw.split('\n\n', 1)
-            
-            if len(parts) > 0:
-                json_part = parts[0]
-                
-                # Extract JSON from markdown code blocks if present
-                if json_part.startswith("```json") or json_part.startswith("```"):
-                    lines = json_part.split("\n")
-                    lines = lines[1:]  # Remove first line with ```
-                    if "```" in lines:
-                        closing_index = lines.index("```")
-                        lines = lines[:closing_index]
-                    json_part = "\n".join(lines)
-                
-                # Parse JSON
-                try:
-                    data = json.loads(json_part)
-                    message = parts[1] if len(parts) > 1 else ""
-                except json.JSONDecodeError:
-                    data = {}
-                    message = raw
+        # Run assistant and get response using optimized method
+        data, raw = await client.run_assistant_optimized(thread_id, settings.TOPIC_ASSISTANTS.get(topic))
         
         # Get document
         doc = await Document.get(id=document_id)
@@ -251,7 +172,7 @@ async def process_assistant_response(document_id: str, thread_id: str, topic: st
         await ChatMessage.create(
             document=doc,
             role="assistant",
-            content=message,
+            content=raw,
             section=section,
             subsection=subsection
         )

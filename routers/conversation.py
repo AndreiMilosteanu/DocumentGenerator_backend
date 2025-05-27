@@ -11,6 +11,7 @@ from models import Document, SectionData, ChatMessage, ActiveSubsection, Approve
 from utils.auth import get_current_active_user, get_admin_user
 from utils.file_upload import attach_pending_files_to_thread
 from utils.rate_limiter import RateLimiter
+from services.openai_client_optimized import get_optimized_client
 import re
 
 router = APIRouter()
@@ -73,124 +74,23 @@ async def _run_thread_and_parse(thread_id: str, topic: str, user: User = None) -
         logger.error(f"No assistant ID available for topic '{topic}'. Please configure at least one assistant.")
         raise ValueError(f"No assistant ID available. Configure ASSISTANT_ID or {topic.upper()}_ASSISTANT_ID in .env file")
     
-    # Create a custom client with increased timeout to prevent hanging requests
-    client = openai.OpenAI(
-        api_key=settings.OPENAI_API_KEY,
-        timeout=120.0  # Increase timeout to 2 minutes
-    )
+    # Use the optimized client
+    client = get_optimized_client()
     
-    # Kick off the assistant run
-    logger.debug(f"Starting assistant run for thread_id: {thread_id} with assistant_id: {assistant_id}")
+    # Kick off the assistant run with optimizations
+    logger.debug(f"Starting optimized assistant run for thread_id: {thread_id} with assistant_id: {assistant_id}")
     try:
-        # Check if there's already an active run
-        runs = client.beta.threads.runs.list(thread_id=thread_id)
-        runs_list = list(runs)
-        active_run = None
+        # Use the optimized run method
+        data, human_message = await client.run_assistant_optimized(thread_id, assistant_id)
         
-        for run in runs_list:
-            if run.status in ["in_progress", "queued"]:
-                active_run = run
-                break
+        logger.debug(f"Optimized run completed successfully")
+        logger.info(f"Extracted data with {len(data)} keys and human message of length {len(human_message)}")
         
-        if active_run:
-            logger.warning(f"Thread {thread_id} already has an active run {active_run.id} with status {active_run.status}")
-            # Wait for the run to complete
-            run = client.beta.threads.runs.retrieve_and_poll(
-                thread_id=thread_id,
-                run_id=active_run.id,
-                poll_interval_ms=500  # Check every 0.5 seconds
-            )
-        else:
-            # Create a new run
-            run = client.beta.threads.runs.create_and_poll(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                poll_interval_ms=500  # Check every 0.5 seconds
-            )
+        return data, human_message
         
-        logger.debug(f"Run completed with status: {run.status}")
     except Exception as e:
-        logger.error(f"Error during assistant run: {str(e)}")
+        logger.error(f"Error during optimized assistant run: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Assistant error: {str(e)}")
-    
-    # Retrieve messages for that run
-    msgs = client.beta.threads.messages.list(thread_id=thread_id, run_id=run.id)
-    logger.debug(f"Retrieved {len(list(msgs))} messages for the run")
-    
-    # Combine assistant content
-    raw = ""
-    for m in msgs:
-        if m.role == "assistant":
-            content = m.content
-            logger.debug(f"Found assistant message with content type: {type(content)}")
-            if isinstance(content, list):
-                raw = "".join(block.text.value for block in content if hasattr(block, 'text'))
-            else:
-                raw = content
-            logger.debug(f"Raw assistant content: {raw[:100]}...")
-            break
-    
-    # Clean markers like 【9:0†source】 from the content
-    raw = re.sub(r'【[^】]*】', '', raw)
-    
-    # Initialize variables
-    data = {}
-    human = raw.strip()  # Default to using full content as human message if no JSON detected
-    
-    # Check if content might start with JSON by checking first character
-    first_char = raw[0] if raw else ""
-    if first_char in ["{", "["]:  # Likely starts with JSON
-        # Split JSON and human part
-        parts = raw.split('\n\n', 1)
-        logger.debug(f"Split raw content into {len(parts)} parts")
-        
-        # Extract JSON part (handle Markdown code blocks if present)
-        json_part = parts[0] if parts else ""
-        
-        # Check if JSON is wrapped in markdown code blocks and extract it
-        if json_part.startswith("```json") or json_part.startswith("```"):
-            # Extract content between ``` markers
-            lines = json_part.split("\n")
-            # Remove the first line with ```json
-            lines = lines[1:]
-            # Find the closing ``` if it exists
-            if "```" in lines:
-                closing_index = lines.index("```")
-                lines = lines[:closing_index]
-            # Join the remaining lines to get the JSON
-            json_part = "\n".join(lines)
-            logger.debug(f"Extracted JSON from markdown code block: {json_part[:100]}...")
-        
-        # Parse the JSON
-        try:
-            data = json.loads(json_part)
-            logger.debug(f"Successfully parsed JSON data: {json.dumps(data, indent=2)}")
-            
-            # Validate data structure
-            for key, value in data.items():
-                logger.debug(f"Checking data key '{key}' with value type {type(value)}")
-                if not isinstance(value, dict):
-                    logger.warning(f"Data for section '{key}' is not a dictionary, it's {type(value)}. This may cause issues.")
-            
-            # If we got valid JSON, set human part to second part (if exists)
-            human = parts[1].strip() if len(parts) > 1 else ''
-            
-            # Clean any source markers from the human message
-            human = re.sub(r'【[^】]*】', '', human)
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
-            logger.error(f"Raw content that failed to parse: {json_part[:200]}...")
-            # Keep default human = raw
-    else:
-        logger.warning(f"Response does not begin with a JSON object. First character: '{first_char}'")
-        logger.warning("Using entire response as human message and returning empty data")
-        # Clean any source markers from the full content used as human message
-        human = re.sub(r'【[^】]*】', '', human)
-    
-    logger.debug(f"Human part (first 100 chars): {human[:100]}...")
-    logger.info(f"Extracted data with {len(data)} keys and human message of length {len(human)}")
-    
-    return data, human
 
 async def _analyze_message_format(thread_id: str, message_id: str = None):
     """
@@ -299,11 +199,8 @@ async def _send_format_correction(thread_id: str, doc_topic: str) -> None:
         logger.error(f"No assistant ID available for topic '{doc_topic}'. Please configure at least one assistant.")
         raise ValueError(f"No assistant ID available. Configure ASSISTANT_ID or {doc_topic.upper()}_ASSISTANT_ID in .env file")
     
-    # Create a custom client with increased timeout
-    client = openai.OpenAI(
-        api_key=settings.OPENAI_API_KEY,
-        timeout=120.0  # Increase timeout to 2 minutes
-    )
+    # Use the optimized client
+    client = get_optimized_client()
     
     correction_message = (
         "CRITICAL FORMAT CORRECTION: Your last response did not follow the required format. "
@@ -317,38 +214,17 @@ async def _send_format_correction(thread_id: str, doc_topic: str) -> None:
     )
     
     logger.warning(f"Sending format correction to thread {thread_id}")
-    client.beta.threads.messages.create(
-        thread_id=thread_id,
-        role="user",
-        content=correction_message
-    )
     
-    # Check for active runs first
-    runs = client.beta.threads.runs.list(thread_id=thread_id)
-    runs_list = list(runs)
-    active_run = None
+    # Send correction message using optimized client
+    await client.send_message_optimized(thread_id, correction_message)
     
-    for run in runs_list:
-        if run.status in ["in_progress", "queued"]:
-            active_run = run
-            break
-    
-    if active_run:
-        logger.warning(f"Thread {thread_id} already has an active run {active_run.id}. Waiting for it to complete.")
-        run = client.beta.threads.runs.retrieve_and_poll(
-            thread_id=thread_id,
-            run_id=active_run.id,
-            poll_interval_ms=500
-        )
-    else:
-        # Run the assistant to get a corrected response
-        run = client.beta.threads.runs.create_and_poll(
-            thread_id=thread_id,
-            assistant_id=assistant_id,
-            poll_interval_ms=500
-        )
-    
-    logger.debug(f"Correction run completed with status: {run.status}")
+    # Run assistant to get corrected response using optimized method
+    try:
+        data, message = await client.run_assistant_optimized(thread_id, assistant_id)
+        logger.debug(f"Correction run completed successfully")
+    except Exception as e:
+        logger.error(f"Error in format correction run: {e}")
+        raise
     
     return
 
@@ -602,10 +478,12 @@ async def start_conversation(
         if doc.thread_id:
             logger.info(f"Replacing existing thread {doc.thread_id} with a new one for isolation")
         
-        thread = openai.beta.threads.create()
-        doc.thread_id = thread.id
+        # Use optimized client for thread creation
+        client = get_optimized_client()
+        thread_id = await client.create_thread_optimized()
+        doc.thread_id = thread_id
         await doc.save()
-        logger.debug(f"Created new thread with ID {thread.id}")
+        logger.debug(f"Created new optimized thread with ID {thread_id}")
         thread_created = True
     else:
         thread_created = False
@@ -692,11 +570,8 @@ async def start_conversation(
     system_prompt = " ".join(prompt_lines)
     
     # send system prompt
-    openai.beta.threads.messages.create(
-        thread_id=thread_id,
-        role="user",
-        content=system_prompt
-    )
+    client = get_optimized_client()
+    await client.send_message_optimized(thread_id, system_prompt)
     
     # save to DB with section context
     await ChatMessage.create(
@@ -783,10 +658,11 @@ async def start_subsection_conversation(
     # We'll use the existing thread if it exists for this document
     # Note: Context isolation is ensured at project creation time in start_conversation
     if not doc.thread_id:
-        thread = openai.beta.threads.create()
-        doc.thread_id = thread.id
+        client = get_optimized_client()
+        thread_id = await client.create_thread_optimized()
+        doc.thread_id = thread_id
         await doc.save()
-        logger.debug(f"Created new thread with ID {thread.id}")
+        logger.debug(f"Created new optimized thread with ID {thread_id}")
         thread_created = True
     else:
         thread_created = False
@@ -837,11 +713,8 @@ async def start_subsection_conversation(
         )
         
         # Send to OpenAI thread
-        openai.beta.threads.messages.create(
-            thread_id=thread_id,
-            role="user",
-            content=context_message
-        )
+        client = get_optimized_client()
+        await client.send_message_optimized(thread_id, context_message)
         
         # Save to DB
         await ChatMessage.create(
@@ -904,11 +777,8 @@ async def reply_conversation(
     
     # Persist user message into thread and DB with section context
     logger.debug(f"Sending user message to OpenAI: {body.message[:50]}...")
-    openai.beta.threads.messages.create(
-        thread_id=thread_id,
-        role="user",
-        content=body.message
-    )
+    client = get_optimized_client()
+    await client.send_message_optimized(thread_id, body.message)
     
     await ChatMessage.create(
         document=doc, 
@@ -1448,11 +1318,9 @@ async def approve_shown_data(
         
         # Send to OpenAI thread
         try:
-            openai.beta.threads.messages.create(
-                thread_id=thread_id,
-                role="user",
-                content=confirmation_message
-            )
+            # Use optimized client
+            client = get_optimized_client()
+            await client.send_message_optimized(doc.thread_id, confirmation_message)
         except Exception as e:
             logger.error(f"Error sending confirmation to OpenAI: {e}")
     
@@ -1795,17 +1663,9 @@ async def update_and_approve_subsection(
         
         # Send to OpenAI thread
         try:
-            # Create a custom client with timeout
-            client = openai.OpenAI(
-                api_key=settings.OPENAI_API_KEY,
-                timeout=30.0
-            )
-            
-            client.beta.threads.messages.create(
-                thread_id=doc.thread_id,
-                role="user",
-                content=confirmation_message
-            )
+            # Use optimized client
+            client = get_optimized_client()
+            await client.send_message_optimized(doc.thread_id, confirmation_message)
         except Exception as e:
             logger.error(f"Error sending confirmation to OpenAI: {e}")
     
@@ -2018,3 +1878,25 @@ async def get_cover_page_data_for_conversation(
     except Exception as e:
         logger.error(f"Error getting cover page data for conversation: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving cover page data: {str(e)}")
+
+@router.get("/{document_id}/performance-stats")
+async def get_performance_stats(
+    document_id: str,
+    current_user: User = Depends(get_admin_user)  # Only admin can access performance stats
+):
+    """
+    Get performance statistics for the optimized OpenAI client.
+    This helps monitor cache effectiveness and active runs.
+    """
+    client = get_optimized_client()
+    stats = client.get_cache_stats()
+    
+    return {
+        "document_id": document_id,
+        "openai_optimization_stats": stats,
+        "recommendations": {
+            "cache_hit_rate": f"{(stats['valid_entries'] / max(stats['total_entries'], 1)) * 100:.1f}%",
+            "active_runs": stats['active_runs'],
+            "cache_efficiency": "Good" if stats['valid_entries'] > 0 else "No cache hits yet"
+        }
+    }
