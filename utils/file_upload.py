@@ -151,19 +151,19 @@ async def attach_file_to_thread(thread_id: str, file_id: str, topic: str) -> Dic
         # Attach the file specifically to this project's thread with a message
         # that clearly scopes it to this project only with strong isolation instructions
         isolation_message = (
-            f"IMPORTANT ISOLATION AND PROCESSING NOTICE: I've uploaded a document for reference in this specific project only. "
-            f"This document has isolation key: {isolation_key}. "
-            f"The content of this document must ONLY be used within this specific thread (ID: {thread_id}). "
-            f"Do not reference or use this document's information in any other thread or conversation. "
-            f"This file's contents are exclusively for this project and must not affect your responses in other threads.\n\n"
-            f"EXTRACTION NOTICE: The system has automatically extracted information from this document and populated both "
-            f"the document sections AND the cover page (Deckblatt) with relevant data found in the file. "
-            f"You can reference this extracted information in our conversation. "
-            f"The cover page fields may now contain project details, addresses, client information, and other relevant data from the uploaded file.\n\n"
-            f"HANDLING INSTRUCTIONS: Do NOT automatically add any additional content from this file to the document sections. "
-            f"Instead, help me review the extracted content through conversation. We will explicitly discuss and decide together "
-            f"if any adjustments or additional information should be added to the document structure or cover page. "
-            f"Only when I specifically approve content for a particular subsection should any changes be made to the document structure."
+            f"WICHTIGER ISOLATIONS- UND VERARBEITUNGSHINWEIS: Ich habe ein Dokument ausschließlich für dieses spezifische Projekt hochgeladen. "
+            f"Dieses Dokument hat den Isolationsschlüssel: {isolation_key}. "
+            f"Der Inhalt dieses Dokuments darf NUR in diesem spezifischen Thread (ID: {thread_id}) verwendet werden. "
+            f"Referenzieren oder verwenden Sie die Informationen dieses Dokuments nicht in anderen Threads oder Gesprächen. "
+            f"Der Inhalt dieser Datei ist ausschließlich für dieses Projekt und darf Ihre Antworten in anderen Threads nicht beeinflussen.\n\n"
+            f"EXTRAKTIONSHINWEIS: Das System hat automatisch Informationen aus diesem Dokument extrahiert und sowohl "
+            f"die Dokument-Abschnitte ALS AUCH das Deckblatt mit relevanten Daten aus der Datei ausgefüllt. "
+            f"Sie können diese extrahierten Informationen in unserem Gespräch referenzieren. "
+            f"Die Deckblatt-Felder können jetzt Projektdetails, Adressen, Kundeninformationen und andere relevante Daten aus der hochgeladenen Datei enthalten.\n\n"
+            f"BEARBEITUNGSANWEISUNGEN: Fügen Sie NICHT automatisch zusätzlichen Inhalt aus dieser Datei zu den Dokument-Abschnitten hinzu. "
+            f"Helfen Sie mir stattdessen, den extrahierten Inhalt durch Gespräche zu überprüfen. Wir werden gemeinsam explizit diskutieren und entscheiden, "
+            f"ob Anpassungen oder zusätzliche Informationen zur Dokumentstruktur oder zum Deckblatt hinzugefügt werden sollen. "
+            f"Nur wenn ich ausdrücklich Inhalt für einen bestimmten Unterabschnitt genehmige, sollen Änderungen an der Dokumentstruktur vorgenommen werden."
         )
         
         response = client.beta.threads.messages.create(
@@ -453,56 +453,56 @@ async def extract_document_data_from_file(file_content: bytes, filename: str, to
         
         # Define the system prompt with much clearer instructions
         system_prompt = """
-        You are an expert document analyzer specialized in technical documents. Your task is to extract structured information 
-        from the provided document and organize it according to a predefined structure.
+        Sie sind ein Experten-Dokumentenanalysator, der auf technische Dokumente spezialisiert ist. Ihre Aufgabe ist es, strukturierte Informationen 
+        aus dem bereitgestellten Dokument zu extrahieren und entsprechend einer vordefinierten Struktur zu organisieren.
         
-        IMPORTANT INSTRUCTIONS:
-        1. You will receive raw text content extracted from a document (PDF, DOCX, etc.)
-        2. You will also receive a structured template with sections and subsections
-        3. Your job is to EXTRACT ACTUAL INFORMATION from the document that matches each section/subsection
-        4. Do NOT return empty values or placeholder messages if you find relevant content
-        5. Do NOT say "No data extracted" or similar messages
-        6. EXTRACT THE ACTUAL DATA from the document for each section where possible
-        7. If there truly is no information for a section, leave it as an empty string
+        WICHTIGE ANWEISUNGEN:
+        1. Sie erhalten rohen Textinhalt, der aus einem Dokument (PDF, DOCX, etc.) extrahiert wurde
+        2. Sie erhalten auch eine strukturierte Vorlage mit Abschnitten und Unterabschnitten
+        3. Ihre Aufgabe ist es, TATSÄCHLICHE INFORMATIONEN aus dem Dokument zu EXTRAHIEREN, die zu jedem Abschnitt/Unterabschnitt passen
+        4. Geben Sie KEINE leeren Werte oder Platzhalter-Nachrichten zurück, wenn Sie relevanten Inhalt finden
+        5. Sagen Sie NICHT "Keine Daten extrahiert" oder ähnliche Nachrichten
+        6. EXTRAHIEREN Sie die TATSÄCHLICHEN DATEN aus dem Dokument für jeden Abschnitt, wo möglich
+        7. Wenn es wirklich keine Informationen für einen Abschnitt gibt, lassen Sie ihn als leeren String
         
-        For each section and subsection in the template:
-        - Search the entire document for relevant information
-        - Extract complete, meaningful content (multiple sentences where appropriate)
-        - Maintain technical details, measurements, and specific terminology
-        - Format the extracted text properly (paragraphs, line breaks, etc.)
+        Für jeden Abschnitt und Unterabschnitt in der Vorlage:
+        - Durchsuchen Sie das gesamte Dokument nach relevanten Informationen
+        - Extrahieren Sie vollständigen, aussagekräftigen Inhalt (mehrere Sätze wo angemessen)
+        - Behalten Sie technische Details, Messungen und spezifische Terminologie bei
+        - Formatieren Sie den extrahierten Text ordnungsgemäß (Absätze, Zeilenumbrüche, etc.)
         
-        Return ONLY a JSON object with this structure:
+        Geben Sie NUR ein JSON-Objekt mit dieser Struktur zurück:
         {
-            "SectionName1": {
-                "Subsection1A": "Actual extracted content...",
-                "Subsection1B": "More extracted content..."
+            "AbschnittName1": {
+                "Unterabschnitt1A": "Tatsächlich extrahierter Inhalt...",
+                "Unterabschnitt1B": "Mehr extrahierter Inhalt..."
             },
-            "SectionName2": {
-                "Subsection2A": "Technical content extracted from document..."
+            "AbschnittName2": {
+                "Unterabschnitt2A": "Technischer Inhalt aus dem Dokument extrahiert..."
             }
         }
         
-        Remember, I need you to extract ACTUAL INFORMATION from the document - DO NOT create generic template text or placeholders.
+        Denken Sie daran, ich brauche Sie, um TATSÄCHLICHE INFORMATIONEN aus dem Dokument zu extrahieren - erstellen Sie KEINE generischen Vorlagentexte oder Platzhalter.
         """
         
         # Create the user prompt with more explicit instructions
         user_prompt = f"""
-        Please analyze this document content and extract information according to the structure below.
-        Extract ACTUAL INFORMATION from the content - do not provide placeholders or empty responses where information exists.
+        Bitte analysieren Sie diesen Dokumentinhalt und extrahieren Sie Informationen entsprechend der unten stehenden Struktur.
+        Extrahieren Sie TATSÄCHLICHE INFORMATIONEN aus dem Inhalt - geben Sie keine Platzhalter oder leeren Antworten, wo Informationen vorhanden sind.
         
-        DOCUMENT STRUCTURE:
+        DOKUMENTSTRUKTUR:
         {json.dumps(structure_description, indent=2)}
         
-        DOCUMENT CONTENT:
+        DOKUMENTINHALT:
         ```
         {raw_content[:75000]}  # Expanded content limit
         ```
         
-        For each section and subsection in the structure, extract any relevant information found in the document content.
-        Return a JSON object structured exactly like the template (matching the section and subsection names precisely).
+        Für jeden Abschnitt und Unterabschnitt in der Struktur extrahieren Sie alle relevanten Informationen, die im Dokumentinhalt gefunden werden.
+        Geben Sie ein JSON-Objekt zurück, das genau wie die Vorlage strukturiert ist (mit exakter Übereinstimmung der Abschnitts- und Unterabschnittsnamen).
         
-        For any section where you find information, extract the ACTUAL DATA from the document - not just placeholders.
-        Only return empty strings for sections where NO information exists in the document.
+        Für jeden Abschnitt, in dem Sie Informationen finden, extrahieren Sie die TATSÄCHLICHEN DATEN aus dem Dokument - nicht nur Platzhalter.
+        Geben Sie nur leere Strings für Abschnitte zurück, in denen KEINE Informationen im Dokument vorhanden sind.
         """
         
         logger.info(f"Sending extracted content to GPT model for structured analysis")
@@ -595,70 +595,50 @@ async def extract_cover_page_data_from_file(file_content: bytes, filename: str, 
         # Create OpenAI client instance
         client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
         
-        # Define the system prompt specifically for cover page data extraction
+        # Define the system prompt for cover page extraction
         system_prompt = """
-        You are an expert document analyzer specialized in extracting cover page information from technical documents. 
-        Your task is to extract specific information that would appear on a document cover page (Deckblatt).
+        Sie sind ein Experten-Dokumentenanalysator, der auf das Extrahieren von Deckblatt-Informationen aus technischen Dokumenten spezialisiert ist.
+        Ihre Aufgabe ist es, Informationen zu identifizieren und zu extrahieren, die für ein Dokumenten-Deckblatt geeignet sind.
         
-        IMPORTANT INSTRUCTIONS:
-        1. You will receive raw text content extracted from a document (PDF, DOCX, etc.)
-        2. You will also receive a cover page structure with categories and fields
-        3. Your job is to EXTRACT ACTUAL INFORMATION that would be relevant for a cover page
-        4. Focus on finding: project names, addresses, client information, order numbers, dates, etc.
-        5. Do NOT return empty values or placeholder messages if you find relevant content
-        6. EXTRACT THE ACTUAL DATA from the document - company names, addresses, project titles, etc.
-        7. If there truly is no information for a field, leave it as an empty string
+        WICHTIGE ANWEISUNGEN:
+        1. Sie erhalten rohen Textinhalt, der aus einem Dokument extrahiert wurde
+        2. Sie erhalten eine Deckblatt-Struktur mit Kategorien und Feldern
+        3. Extrahieren Sie TATSÄCHLICHE INFORMATIONEN aus dem Dokument, die für jedes Feld relevant sind
+        4. Konzentrieren Sie sich auf identifizierende Informationen wie Projektnamen, Adressen, Kundendaten, etc.
+        5. Geben Sie KEINE leeren Werte oder Platzhalter zurück, wenn Sie relevante Informationen finden
+        6. Formatieren Sie extrahierte Daten ordnungsgemäß (vollständige Adressen, Firmenamen, etc.)
         
-        For cover page extraction, look specifically for:
-        - Project names, titles, or descriptions
-        - Addresses, streets, postal codes, cities
-        - Company names and client information
-        - Order numbers, reference numbers
-        - Dates (creation dates, sampling dates, etc.)
-        - Author names, signatures
-        - Location-specific information (sampling locations, test locations, etc.)
-        
-        Return ONLY a JSON object with this structure:
-        {
-            "CATEGORY1": {
-                "field1": "Actual extracted value...",
-                "field2": "More extracted data..."
-            },
-            "CATEGORY2": {
-                "field1": "Company name extracted from document..."
-            }
-        }
-        
-        Remember, this is for a COVER PAGE - extract the most important identifying information about the project and client.
+        Geben Sie NUR ein JSON-Objekt zurück, das genau der bereitgestellten Deckblatt-Struktur entspricht.
+        Verwenden Sie leere Strings nur für Felder, in denen wirklich keine relevanten Informationen im Dokument gefunden werden.
         """
         
         # Create the user prompt with cover page specific instructions
         user_prompt = f"""
-        Please analyze this document content and extract cover page information according to the structure below.
-        Extract ACTUAL INFORMATION that would be suitable for a document cover page - project names, addresses, client info, etc.
+        Bitte analysieren Sie diesen Dokumentinhalt und extrahieren Sie Deckblatt-Informationen entsprechend der unten stehenden Struktur.
+        Extrahieren Sie TATSÄCHLICHE INFORMATIONEN, die für ein Dokumenten-Deckblatt geeignet sind - Projektnamen, Adressen, Kundeninfo, etc.
         
-        COVER PAGE STRUCTURE:
+        DECKBLATT-STRUKTUR:
         {json.dumps(topic_structure, indent=2)}
         
-        DOCUMENT CONTENT:
+        DOKUMENTINHALT:
         ```
         {raw_content[:75000]}  # Expanded content limit
         ```
         
-        For each category and field in the structure, extract any relevant information found in the document content.
-        Return a JSON object structured exactly like the template (matching the category and field names precisely).
+        Für jede Kategorie und jedes Feld in der Struktur extrahieren Sie alle relevanten Informationen, die im Dokumentinhalt gefunden werden.
+        Geben Sie ein JSON-Objekt zurück, das genau wie die Vorlage strukturiert ist (mit exakter Übereinstimmung der Kategorie- und Feldnamen).
         
-        Focus on extracting:
-        - Project names and descriptions
-        - Complete addresses (street, house number, postal code, city)
-        - Client company names and contact persons
-        - Order/reference numbers
-        - Important dates
-        - Author/creator information
-        - Location information relevant to the document type
+        Konzentrieren Sie sich auf das Extrahieren von:
+        - Projektnamen und -beschreibungen
+        - Vollständige Adressen (Straße, Hausnummer, Postleitzahl, Stadt)
+        - Firmennamen und Kontaktpersonen der Kunden
+        - Auftrags-/Referenznummern
+        - Wichtige Daten
+        - Autor-/Ersteller-Informationen
+        - Standortinformationen, die für den Dokumenttyp relevant sind
         
-        For any field where you find information, extract the ACTUAL DATA from the document.
-        Only return empty strings for fields where NO relevant information exists in the document.
+        Für jedes Feld, in dem Sie Informationen finden, extrahieren Sie die TATSÄCHLICHEN DATEN aus dem Dokument.
+        Geben Sie nur leere Strings für Felder zurück, in denen KEINE relevanten Informationen im Dokument vorhanden sind.
         """
         
         logger.info(f"Sending extracted content to GPT model for cover page analysis")

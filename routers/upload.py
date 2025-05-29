@@ -132,22 +132,21 @@ async def process_assistant_response(document_id: str, thread_id: str, topic: st
         
         # Create a comprehensive file analysis prompt
         file_analysis_prompt = f"""
-        I've uploaded a file for you to analyze. Please examine the content thoroughly and extract ALL relevant information 
-        that could be used to populate our document structure. Don't limit yourself to any specific section - instead,
-        identify information that fits anywhere in our document template.
+        Ich habe eine Datei für Sie zum Analysieren hochgeladen. Bitte untersuchen Sie den Inhalt gründlich und extrahieren Sie ALLE relevanten Informationen, 
+        die zur Befüllung unserer Dokumentstruktur verwendet werden könnten. Beschränken Sie sich nicht auf einen bestimmten Abschnitt - identifizieren Sie 
+        stattdessen Informationen, die überall in unsere Dokumentvorlage passen.
 
-        IMPORTANT: The system has also automatically extracted cover page (Deckblatt) information from this file and 
-        populated the cover page fields with relevant project details, addresses, client information, and other data.
-        You can reference this extracted cover page information in our conversation.
+        WICHTIG: Das System hat auch automatisch Deckblatt-Informationen aus dieser Datei extrahiert und 
+        die Deckblatt-Felder mit relevanten Projektdetails, Adressen, Kundeninformationen und anderen Daten befüllt.
+        Sie können diese extrahierten Deckblatt-Informationen in unserem Gespräch referenzieren.
 
-        Our document structure for topic '{topic}' is:
+        Unsere Dokumentstruktur für das Thema '{topic}' ist:
         {json.dumps(structure_description, indent=2)}
 
-        For each section and subsection where you find relevant information in the file, please extract and structure it.
-        Your response should include JSON data organized according to our document structure, along with a summary of 
-        what you found.
+        Für jeden Abschnitt und Unterabschnitt, in dem Sie relevante Informationen in der Datei finden, extrahieren und strukturieren Sie diese bitte.
+        Ihre Antwort sollte JSON-Daten entsprechend unserer Dokumentstruktur sowie eine Zusammenfassung dessen, was Sie gefunden haben, enthalten.
 
-        Remember to follow the required format by returning valid JSON data along with your human response.
+        Denken Sie daran, das erforderliche Format einzuhalten, indem Sie gültige JSON-Daten zusammen mit Ihrer menschlichen Antwort zurückgeben.
         """
         
         # Send the instruction to the thread
@@ -431,9 +430,9 @@ async def upload_file_to_message(
         
         # If no message provided, create a default message that encourages the assistant to analyze the file
         if not message:
-            message = f"""I've uploaded a file: {file.filename}. 
-Please analyze this file and help me understand its content. Let's discuss what information might be relevant for our document.
-Do NOT automatically add any content to the document - we'll decide together what should be included after our discussion."""
+            message = f"""Ich habe eine Datei hochgeladen: {file.filename}. 
+Bitte analysieren Sie diese Datei und helfen Sie mir, ihren Inhalt zu verstehen. Lassen Sie uns besprechen, welche Informationen für unser Dokument relevant sein könnten.
+Fügen Sie NICHT automatisch Inhalte zum Dokument hinzu - wir werden gemeinsam entscheiden, was nach unserer Diskussion einbezogen werden soll."""
         
         # Create the message first
         chat_message = await ChatMessage.create(

@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: documentgenerator
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # DocumentGenerator Backend API
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Database
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/documentgenerator
+      
+      # OpenAI (you need to set these)
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ASSISTANT_ID: ${ASSISTANT_ID}
+      GPT_MODEL: ${GPT_MODEL:-gpt-4-turbo}
+      
+      # Topic-specific assistants (optional)
+      DEKLARATIONSANALYSE_ASSISTANT_ID: ${DEKLARATIONSANALYSE_ASSISTANT_ID}
+      BODENUNTERSUCHUNG_ASSISTANT_ID: ${BODENUNTERSUCHUNG_ASSISTANT_ID}
+      BAUGRUNDGUTACHTEN_ASSISTANT_ID: ${BAUGRUNDGUTACHTEN_ASSISTANT_ID}
+      PLATTENDRUCKVERSUCH_ASSISTANT_ID: ${PLATTENDRUCKVERSUCH_ASSISTANT_ID}
+      
+      # JWT
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-this-in-production}
+      JWT_ALGORITHM: HS256
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: 43200  # 30 days
+      
+      # Application
+      WKHTMLTOPDF_PATH: /usr/bin/wkhtmltopdf
+      DATA_DIR: /app/data
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  postgres_data:
+  app_data: 

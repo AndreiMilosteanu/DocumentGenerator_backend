@@ -203,14 +203,14 @@ async def _send_format_correction(thread_id: str, doc_topic: str) -> None:
     client = get_optimized_client()
     
     correction_message = (
-        "CRITICAL FORMAT CORRECTION: Your last response did not follow the required format. "
-        "You MUST structure ALL responses in exactly two parts:\n\n"
-        "1) First part: A valid JSON object starting with '{' containing all the information gathered so far\n"
-        "2) Second part: Your human-readable message after TWO newlines\n\n"
-        f"Example format:\n"
-        f"{{\"Section Name\": {{\"Subsection1\": \"Value1\", \"Subsection2\": \"Value2\"}}}}\n\n"
-        f"Your normal human response here...\n\n"
-        f"Please continue helping with the {doc_topic} document, but ALWAYS follow this exact format."
+        "KRITISCHE FORMAT-KORREKTUR: Ihre letzte Antwort hat nicht den erforderlichen Format. "
+        "Sie MÜSSEN ALLE Antworten in genau ZWEI Teilen ausgeben:\n\n"
+        "1) Erstes Teil: Ein gültiges JSON-Objekt, das alle bisher gesammelten Informationen enthält\n"
+        "2) Ihre menschenlesbare Nachricht nach ZWEI Zeilenumbrüchen\n\n"
+        f"Beispielformat:\n"
+        f"{{\"Abschnitt Name\": {{\"Unterabschnitt1\": \"Wert1\", \"Unterabschnitt2\": \"Wert2\"}}}}\n\n"
+        f"Ihre menschliche Antwort hier...\n\n"
+        f"Bitte helfen Sie weiter mit dem {doc_topic} Dokument, aber FOLGEN SIE IMMER GENAU DIESEN EXAKTEN FORMAT."
     )
     
     logger.warning(f"Sending format correction to thread {thread_id}")
@@ -504,8 +504,7 @@ async def start_conversation(
     
     # Persist system instructions into thread and DB with subsection context
     prompt_lines = [
-        f"You are an expert assistant for topic '{topic}'. You need to get relevant data from the user to complete the PDF document for this topic. ",
-        "Following sections are needed:"
+        f"Folgende Abschnitte werden benötigt:"
     ]
     for sec in DOCUMENT_STRUCTURE[topic]:
         title = list(sec.keys())[0]
@@ -514,58 +513,58 @@ async def start_conversation(
     
     # Add cover page structure information
     if topic in COVER_PAGE_STRUCTURE:
-        prompt_lines.append(f"\nIMPORTANT: This document also has a COVER PAGE (Deckblatt) with the following structure:")
+        prompt_lines.append(f"\nWICHTIG: Dieses Dokument hat auch ein DECKBLATT mit der folgenden Struktur:")
         cover_structure = COVER_PAGE_STRUCTURE[topic]
         for category, fields in cover_structure.items():
             field_names = list(fields.keys())
             prompt_lines.append(f"- {category}: {', '.join(field_names)}")
         
-        prompt_lines.append(f"\nCOVER PAGE CAPABILITIES:")
-        prompt_lines.append(f"- When files are uploaded, the system automatically extracts cover page data")
-        prompt_lines.append(f"- You can reference extracted cover page information in conversations")
-        prompt_lines.append(f"- Users can view and edit cover page data through the system")
-        prompt_lines.append(f"- Cover page data includes project details, addresses, client information, etc.")
-        prompt_lines.append(f"- This cover page data is separate from the main document sections")
+        prompt_lines.append(f"\nDECKBLATT-FUNKTIONEN:")
+        prompt_lines.append(f"- Wenn Dateien hochgeladen werden, extrahiert das System automatisch Deckblatt-Daten")
+        prompt_lines.append(f"- Sie können extrahierte Deckblatt-Informationen in Gesprächen referenzieren")
+        prompt_lines.append(f"- Benutzer können Deckblatt-Daten über das System anzeigen und bearbeiten")
+        prompt_lines.append(f"- Deckblatt-Daten umfassen Projektdetails, Adressen, Kundeninformationen usw.")
+        prompt_lines.append(f"- Diese Deckblatt-Daten sind getrennt von den Hauptdokument-Abschnitten")
     
     # Add context for the specific subsection
     prompt_lines.append(
-        f"\nWe are currently working on the subsection '{subsection}' in section '{section}'."
+        f"\nWir arbeiten derzeit am Unterabschnitt '{subsection}' im Abschnitt '{section}'."
     )
     prompt_lines.append(
-        f"Please focus on gathering information ONLY for this specific subsection until instructed otherwise."
+        f"Bitte konzentrieren Sie sich darauf, Informationen NUR für diesen spezifischen Unterabschnitt zu sammeln, bis Sie anders angewiesen werden."
     )
     
     # Add isolation instructions to ensure thread-specific context
     prompt_lines.append(
-        f"\nIMPORTANT ISOLATION INSTRUCTIONS: This is thread ID {thread_id}. Your responses must be based ONLY on information shared within this specific thread."
+        f"\nWICHTIGE ISOLATIONS-ANWEISUNGEN: Dies ist Thread-ID {thread_id}. Ihre Antworten müssen NUR auf Informationen basieren, die in diesem spezifischen Thread geteilt wurden."
     )
     prompt_lines.append(
-        f"Do not use or reference any information, files, or data from other threads or conversations."
+        f"Verwenden oder referenzieren Sie keine Informationen, Dateien oder Daten aus anderen Threads oder Gesprächen."
     )
     prompt_lines.append(
-        f"Any files that will be uploaded are specific to this thread only and must not influence your responses in other threads."
+        f"Alle Dateien, die hochgeladen werden, sind spezifisch für diesen Thread und dürfen Ihre Antworten in anderen Threads nicht beeinflussen."
     )
     
     prompt_lines.append(
-        "IMPORTANT FORMAT INSTRUCTION: For each reply from your side, you MUST output TWO parts in the following format:"
+        "WICHTIGE FORMAT-ANWEISUNG: Für jede Antwort von Ihrer Seite MÜSSEN Sie ZWEI Teile im folgenden Format ausgeben:"
     )
     prompt_lines.append(
-        "1) A raw JSON object (starting with '{') containing all extracted information so far,"
+        "1) Ein rohes JSON-Objekt (beginnend mit '{'), das alle bisher extrahierten Informationen enthält,"
     )
     prompt_lines.append(
-        "2) Your human-readable response, separated from the JSON by exactly two newlines."
+        "2) Ihre menschenlesbare Antwort, getrennt vom JSON durch genau zwei Zeilenumbrüche."
     )
     prompt_lines.append(
-        f"Example format:\n{{\"{section}\": {{\"{subsection}\": \"Content gathered for this subsection\"}}}}\n\nYour human response text here..."
+        f"Beispielformat:\n{{\"{section}\": {{\"{subsection}\": \"Inhalt für diesen Unterabschnitt gesammelt\"}}}}\n\nIhre menschliche Antwort hier..."
     )
     prompt_lines.append(
-        "The user will only see the human-readable part, but the JSON is critical for system functioning."
+        "Der Benutzer sieht nur den menschenlesbaren Teil, aber das JSON ist kritisch für die Systemfunktion."
     )
     prompt_lines.append(
-        "IMPORTANT: Do NOT use markdown code blocks (```) for the JSON part. Provide the raw JSON starting with '{' character."
+        "WICHTIG: Verwenden Sie KEINE Markdown-Codeblöcke (```) für den JSON-Teil. Stellen Sie das rohe JSON bereit, das mit dem '{' Zeichen beginnt."
     )
     prompt_lines.append(
-        "FAILURE TO FOLLOW THIS FORMAT will result in data loss. Always begin your response with a valid JSON object."
+        "NICHTEINHALTUNG DIESES FORMATS führt zu Datenverlust. Beginnen Sie Ihre Antwort immer mit einem gültigen JSON-Objekt."
     )
     system_prompt = " ".join(prompt_lines)
     
@@ -707,9 +706,9 @@ async def start_subsection_conversation(
     if not has_messages:
         # Create subsection context message
         context_message = (
-            f"We are now working on the subsection '{request.subsection}' in section '{request.section}'. "
-            f"Please focus on gathering information ONLY for this specific subsection until instructed otherwise. "
-            f"All previous information is still valid, but now we need to work on this particular subsection."
+            f"Wir arbeiten jetzt am Unterabschnitt '{request.subsection}' im Abschnitt '{request.section}'. "
+            f"Bitte konzentrieren Sie sich darauf, Informationen NUR für diesen spezifischen Unterabschnitt zu sammeln, bis Sie anders angewiesen werden. "
+            f"Alle vorherigen Informationen sind immer noch gültig, aber jetzt müssen wir uns auf diesen bestimmten Unterabschnitt konzentrieren."
         )
         
         # Send to OpenAI thread
@@ -1303,8 +1302,8 @@ async def approve_shown_data(
     thread_id = doc.thread_id
     if thread_id:
         confirmation_message = (
-            f"I have approved the data for {section} > {subsection}. "
-            f"This information will be included in the final PDF document."
+            f"Ich habe die Daten für {section} > {subsection} genehmigt. "
+            f"Diese Informationen werden im finalen PDF-Dokument enthalten."
         )
         
         # Add message to conversation history
@@ -1363,7 +1362,7 @@ async def approve_shown_data(
         "subsection": subsection,
         "value": value,
         "approved": True,
-        "message": f"Data for {section} > {subsection} has been approved and will be included in the PDF."
+        "message": f"Daten für {section} > {subsection} wurden genehmigt und werden im finalen PDF enthalten."
     }
 
 async def _update_section_data(doc: Document, data: Dict[str, Any]) -> None:
@@ -1648,8 +1647,8 @@ async def update_and_approve_subsection(
     # Add a confirmation message to the conversation if requested
     if data.notify_assistant and doc.thread_id:
         confirmation_message = (
-            f"I have edited and approved the data for {section} > {subsection}. "
-            f"This information will be included in the final PDF document."
+            f"Ich habe die Daten für {section} > {subsection} aktualisiert und genehmigt. "
+            f"Diese Informationen werden im finalen PDF-Dokument enthalten."
         )
         
         # Add message to conversation history
@@ -1676,7 +1675,7 @@ async def update_and_approve_subsection(
         "subsection": subsection,
         "value": data.value,
         "approved": True,
-        "message": f"Data for {section} > {subsection} has been updated and approved for the PDF."
+        "message": f"Daten für {section} > {subsection} wurden aktualisiert und genehmigt für das PDF."
     }
 
 @router.get("/{document_id}/all-section-data")
