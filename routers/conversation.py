@@ -512,38 +512,38 @@ async def start_conversation(
         prompt_lines.append(f"- {title}: {', '.join(subs)}")
     
     # Add cover page structure information
-    if topic in COVER_PAGE_STRUCTURE:
-        prompt_lines.append(f"\nWICHTIG: Dieses Dokument hat auch ein DECKBLATT mit der folgenden Struktur:")
-        cover_structure = COVER_PAGE_STRUCTURE[topic]
-        for category, fields in cover_structure.items():
-            field_names = list(fields.keys())
-            prompt_lines.append(f"- {category}: {', '.join(field_names)}")
+    # if topic in COVER_PAGE_STRUCTURE:
+    #     prompt_lines.append(f"\nWICHTIG: Dieses Dokument hat auch ein DECKBLATT mit der folgenden Struktur:")
+    #     cover_structure = COVER_PAGE_STRUCTURE[topic]
+    #     for category, fields in cover_structure.items():
+    #         field_names = list(fields.keys())
+    #         prompt_lines.append(f"- {category}: {', '.join(field_names)}")
         
-        prompt_lines.append(f"\nDECKBLATT-FUNKTIONEN:")
-        prompt_lines.append(f"- Wenn Dateien hochgeladen werden, extrahiert das System automatisch Deckblatt-Daten")
-        prompt_lines.append(f"- Sie können extrahierte Deckblatt-Informationen in Gesprächen referenzieren")
-        prompt_lines.append(f"- Benutzer können Deckblatt-Daten über das System anzeigen und bearbeiten")
-        prompt_lines.append(f"- Deckblatt-Daten umfassen Projektdetails, Adressen, Kundeninformationen usw.")
-        prompt_lines.append(f"- Diese Deckblatt-Daten sind getrennt von den Hauptdokument-Abschnitten")
+    #     prompt_lines.append(f"\nDECKBLATT-FUNKTIONEN:")
+    #     prompt_lines.append(f"- Wenn Dateien hochgeladen werden, extrahiert das System automatisch Deckblatt-Daten")
+    #     prompt_lines.append(f"- Sie können extrahierte Deckblatt-Informationen in Gesprächen referenzieren")
+    #     prompt_lines.append(f"- Benutzer können Deckblatt-Daten über das System anzeigen und bearbeiten")
+    #     prompt_lines.append(f"- Deckblatt-Daten umfassen Projektdetails, Adressen, Kundeninformationen usw.")
+    #     prompt_lines.append(f"- Diese Deckblatt-Daten sind getrennt von den Hauptdokument-Abschnitten")
     
     # Add context for the specific subsection
     prompt_lines.append(
         f"\nWir arbeiten derzeit am Unterabschnitt '{subsection}' im Abschnitt '{section}'."
     )
-    prompt_lines.append(
-        f"Bitte konzentrieren Sie sich darauf, Informationen NUR für diesen spezifischen Unterabschnitt zu sammeln, bis Sie anders angewiesen werden."
-    )
+    # prompt_lines.append(
+    #     f"Bitte konzentrieren Sie sich darauf, Informationen NUR für diesen spezifischen Unterabschnitt zu sammeln, bis Sie anders angewiesen werden."
+    # )
     
-    # Add isolation instructions to ensure thread-specific context
-    prompt_lines.append(
-        f"\nWICHTIGE ISOLATIONS-ANWEISUNGEN: Dies ist Thread-ID {thread_id}. Ihre Antworten müssen NUR auf Informationen basieren, die in diesem spezifischen Thread geteilt wurden."
-    )
-    prompt_lines.append(
-        f"Verwenden oder referenzieren Sie keine Informationen, Dateien oder Daten aus anderen Threads oder Gesprächen."
-    )
-    prompt_lines.append(
-        f"Alle Dateien, die hochgeladen werden, sind spezifisch für diesen Thread und dürfen Ihre Antworten in anderen Threads nicht beeinflussen."
-    )
+    # # Add isolation instructions to ensure thread-specific context
+    # prompt_lines.append(
+    #     f"\nWICHTIGE ISOLATIONS-ANWEISUNGEN: Dies ist Thread-ID {thread_id}. Ihre Antworten müssen NUR auf Informationen basieren, die in diesem spezifischen Thread geteilt wurden."
+    # )
+    # prompt_lines.append(
+    #     f"Verwenden oder referenzieren Sie keine Informationen, Dateien oder Daten aus anderen Threads oder Gesprächen."
+    # )
+    # prompt_lines.append(
+    #     f"Alle Dateien, die hochgeladen werden, sind spezifisch für diesen Thread und dürfen Ihre Antworten in anderen Threads nicht beeinflussen."
+    # )
     
     prompt_lines.append(
         "WICHTIGE FORMAT-ANWEISUNG: Für jede Antwort von Ihrer Seite MÜSSEN Sie ZWEI Teile im folgenden Format ausgeben:"
@@ -707,8 +707,8 @@ async def start_subsection_conversation(
         # Create subsection context message
         context_message = (
             f"Wir arbeiten jetzt am Unterabschnitt '{request.subsection}' im Abschnitt '{request.section}'. "
-            f"Bitte konzentrieren Sie sich darauf, Informationen NUR für diesen spezifischen Unterabschnitt zu sammeln, bis Sie anders angewiesen werden. "
-            f"Alle vorherigen Informationen sind immer noch gültig, aber jetzt müssen wir uns auf diesen bestimmten Unterabschnitt konzentrieren."
+            # f"Bitte konzentrieren Sie sich darauf, Informationen NUR für diesen spezifischen Unterabschnitt zu sammeln, bis Sie anders angewiesen werden. "
+            # f"Alle vorherigen Informationen sind immer noch gültig, aber jetzt müssen wir uns auf diesen bestimmten Unterabschnitt konzentrieren."
         )
         
         # Send to OpenAI thread

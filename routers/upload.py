@@ -6,7 +6,7 @@ import logging
 from pydantic import BaseModel, UUID4
 from models import Document, User, FileUpload, FileUploadStatus, ChatMessage, SectionData
 from utils.auth import get_current_active_user
-from utils.file_upload import process_file_upload, FileUploadError, delete_openai_file, extract_file_content, extract_document_data_from_file, extract_cover_page_data_from_file
+from utils.file_upload import process_file_upload, FileUploadError, delete_openai_file, extract_file_content, extract_document_data_from_file, extract_cover_page_data_from_file, save_temp_file, upload_file_to_openai, is_file_type_supported, validate_file_size
 from utils.rate_limiter import RateLimiter
 from utils.auto_pdf_generator import schedule_pdf_generation
 from templates.structure import DOCUMENT_STRUCTURE
@@ -131,23 +131,20 @@ async def process_assistant_response(document_id: str, thread_id: str, topic: st
                 })
         
         # Create a comprehensive file analysis prompt
-        file_analysis_prompt = f"""
-        Ich habe eine Datei für Sie zum Analysieren hochgeladen. Bitte untersuchen Sie den Inhalt gründlich und extrahieren Sie ALLE relevanten Informationen, 
-        die zur Befüllung unserer Dokumentstruktur verwendet werden könnten. Beschränken Sie sich nicht auf einen bestimmten Abschnitt - identifizieren Sie 
-        stattdessen Informationen, die überall in unsere Dokumentvorlage passen.
+        file_analysis_prompt = ""
+        # file_analysis_prompt = f"""
+        # Ich habe eine Datei für Sie zum Analysieren hochgeladen. Bitte untersuchen Sie den Inhalt gründlich und extrahieren Sie ALLE relevanten Informationen, 
+        # die zur Befüllung unserer Dokumentstruktur verwendet werden könnten. Beschränken Sie sich nicht auf einen bestimmten Abschnitt - identifizieren Sie 
+        # stattdessen Informationen, die überall in unsere Dokumentvorlage passen.
 
-        WICHTIG: Das System hat auch automatisch Deckblatt-Informationen aus dieser Datei extrahiert und 
-        die Deckblatt-Felder mit relevanten Projektdetails, Adressen, Kundeninformationen und anderen Daten befüllt.
-        Sie können diese extrahierten Deckblatt-Informationen in unserem Gespräch referenzieren.
+        # Unsere Dokumentstruktur für das Thema '{topic}' ist:
+        # {json.dumps(structure_description, indent=2)}
 
-        Unsere Dokumentstruktur für das Thema '{topic}' ist:
-        {json.dumps(structure_description, indent=2)}
+        # Für jeden Abschnitt und Unterabschnitt, in dem Sie relevante Informationen in der Datei finden, extrahieren und strukturieren Sie diese bitte.
+        # Ihre Antwort sollte JSON-Daten entsprechend unserer Dokumentstruktur sowie eine Zusammenfassung dessen, was Sie gefunden haben, enthalten.
 
-        Für jeden Abschnitt und Unterabschnitt, in dem Sie relevante Informationen in der Datei finden, extrahieren und strukturieren Sie diese bitte.
-        Ihre Antwort sollte JSON-Daten entsprechend unserer Dokumentstruktur sowie eine Zusammenfassung dessen, was Sie gefunden haben, enthalten.
-
-        Denken Sie daran, das erforderliche Format einzuhalten, indem Sie gültige JSON-Daten zusammen mit Ihrer menschlichen Antwort zurückgeben.
-        """
+        # Denken Sie daran, das erforderliche Format einzuhalten, indem Sie gültige JSON-Daten zusammen mit Ihrer menschlichen Antwort zurückgeben.
+        # """
         
         # Send the instruction to the thread
         await client.send_message_optimized(thread_id, file_analysis_prompt)
@@ -356,9 +353,11 @@ async def upload_file(
             await update_document_with_extracted_data(doc, file_content, file.filename)
             
             # Extract cover page data
-            await update_cover_page_with_extracted_data(doc, file_content, file.filename)
+            # await update_cover_page_with_extracted_data(doc, file_content, file.filename)
             
-            logger.info(f"Completed data extraction for file {file.filename} - both document sections and cover page updated")
+            # logger.info(f"Completed data extraction for file {file.filename} - both document sections and cover page updated")
+            logger.info(f"Completed data extraction for file {file.filename} - document sections extracted")
+
         except Exception as e:
             logger.error(f"Error during data extraction for file {file.filename}: {str(e)}")
             # Don't fail the upload if extraction fails - the file is still uploaded successfully
@@ -428,39 +427,132 @@ async def upload_file_to_message(
         # Read file content
         file_content = await file.read()
         
-        # If no message provided, create a default message that encourages the assistant to analyze the file
+        # If no message provided, create a default message
         if not message:
-            message = f"""Ich habe eine Datei hochgeladen: {file.filename}. 
-Bitte analysieren Sie diese Datei und helfen Sie mir, ihren Inhalt zu verstehen. Lassen Sie uns besprechen, welche Informationen für unser Dokument relevant sein könnten.
-Fügen Sie NICHT automatisch Inhalte zum Dokument hinzu - wir werden gemeinsam entscheiden, was nach unserer Diskussion einbezogen werden soll."""
+            message = f"Ich habe eine Datei hochgeladen: {file.filename}. Bitte analysieren Sie diese."
         
-        # Create the message first
-        chat_message = await ChatMessage.create(
-            document=doc,
-            role="user",
-            content=message,
-            section=section,
-            subsection=subsection
-        )
+        # Process the upload but WITHOUT attaching to thread yet (we'll do that manually)
+        # We need to upload the file to OpenAI first to get the file_id
+        from utils.file_upload import save_temp_file, upload_file_to_openai, is_file_type_supported, validate_file_size, FileUploadError
+        import uuid
+        import os
+        import mimetypes
         
-        # Process the upload and associate with the message
-        file_upload = await process_file_upload(
-            file_content=file_content,
-            filename=file.filename,
+        # Validate file
+        if not is_file_type_supported(file.filename):
+            raise FileUploadError(f"Unsupported file type: {file.filename}")
+        
+        file_size = len(file_content)
+        if not validate_file_size(file_size):
+            raise FileUploadError(f"File too large: {file_size} bytes")
+        
+        # Create FileUpload record
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        mime_type, _ = mimetypes.guess_type(file.filename)
+        
+        file_upload = await FileUpload.create(
+            id=uuid.uuid4(),
             document=doc,
             user=current_user,
+            original_filename=file.filename,
+            openai_file_id="",  # Will be updated after OpenAI upload
+            file_size=file_size,
+            file_type=mime_type or file_ext,
+            status=FileUploadStatus.PROCESSING,
             section=section,
             subsection=subsection
         )
         
-        # Associate the file with the message
-        file_upload.associated_message = chat_message
-        await file_upload.save()
-        
-        # Keep a copy of the file content for PDF merging
+        # Save file content
         file_upload.file_data = file_content
         await file_upload.save()
-        logger.info(f"Saved file_data for {file_upload.original_filename}: {len(file_content)} bytes")
+        
+        try:
+            # Save to temporary storage and upload to OpenAI
+            temp_path = await save_temp_file(file_content, file.filename)
+            
+            try:
+                # Upload to OpenAI
+                openai_file = await upload_file_to_openai(temp_path, thread_id=doc.thread_id)
+                
+                # Update record with OpenAI file ID
+                file_upload.openai_file_id = openai_file.id
+                await file_upload.save()
+                
+                # Now send the user's message with the file attached to the OpenAI thread
+                import openai
+                client = openai.OpenAI(api_key=settings.OPENAI_API_KEY, timeout=120.0)
+                
+                # Send the user's message with file attachment to OpenAI thread
+                openai_response = client.beta.threads.messages.create(
+                    thread_id=doc.thread_id,
+                    role="user",
+                    content=message,
+                    attachments=[
+                        {"file_id": openai_file.id, "tools": [{"type": "file_search"}]}
+                    ]
+                )
+                
+                # Create the message in our database to match what was sent to OpenAI
+                chat_message = await ChatMessage.create(
+                    document=doc,
+                    role="user",
+                    content=message,
+                    section=section,
+                    subsection=subsection
+                )
+                
+                # Associate the file with the message
+                file_upload.associated_message = chat_message
+                file_upload.status = FileUploadStatus.READY
+                await file_upload.save()
+                
+                logger.info(f"Successfully sent message with file {openai_file.id} to thread {doc.thread_id}")
+                
+                # Now run the assistant to get a response to the user's message
+                try:
+                    from routers.conversation import _update_section_data
+                    
+                    # Get the appropriate assistant ID for the topic
+                    assistant_id = settings.TOPIC_ASSISTANTS.get(doc.topic)
+                    if not assistant_id:
+                        assistant_id = settings.ASSISTANT_ID
+                    
+                    # Run the assistant to get a response
+                    client = get_optimized_client()
+                    data, raw_response = await client.run_assistant_optimized(doc.thread_id, assistant_id)
+                    
+                    # Save the assistant's response to the database
+                    await ChatMessage.create(
+                        document=doc,
+                        role="assistant",
+                        content=raw_response,
+                        section=section,
+                        subsection=subsection
+                    )
+                    
+                    # Update section data if the assistant provided structured data
+                    if data:
+                        await _update_section_data(doc, data)
+                    
+                    logger.info(f"Successfully processed assistant response for message with file")
+                    
+                except Exception as e:
+                    logger.error(f"Error getting assistant response: {str(e)}")
+                    # Don't fail the upload if assistant response fails - the message and file were uploaded successfully
+                
+            finally:
+                # Clean up temporary file
+                if temp_path and os.path.exists(temp_path):
+                    os.remove(temp_path)
+        
+        except Exception as e:
+            # Update status to ERROR and log the error
+            file_upload.status = FileUploadStatus.ERROR
+            file_upload.error_message = str(e)
+            await file_upload.save()
+            logger.error(f"File upload error: {str(e)}")
+            raise FileUploadError(f"File upload failed: {str(e)}")
         
         # Extract data from the file and update both document sections and cover page
         try:
@@ -468,15 +560,16 @@ Fügen Sie NICHT automatisch Inhalte zum Dokument hinzu - wir werden gemeinsam e
             await update_document_with_extracted_data(doc, file_content, file.filename)
             
             # Extract cover page data
-            await update_cover_page_with_extracted_data(doc, file_content, file.filename)
+            # await update_cover_page_with_extracted_data(doc, file_content, file.filename)
             
             logger.info(f"Completed data extraction for file {file.filename} - both document sections and cover page updated")
         except Exception as e:
             logger.error(f"Error during data extraction for file {file.filename}: {str(e)}")
             # Don't fail the upload if extraction fails - the file is still uploaded successfully
         
-        # Schedule the assistant to process the file in the background
-        background_tasks.add_task(process_assistant_response, doc.id, doc.thread_id, doc.topic, section, subsection)
+        # Note: We don't schedule the assistant background task for message-file uploads
+        # because the user has already sent their own message with the file attached.
+        # The assistant will respond naturally to the user's message in the conversation flow.
         
         # Create response
         return FileUploadResponse(

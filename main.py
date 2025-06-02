@@ -15,7 +15,7 @@ logging.basicConfig(
 
 # Set log levels for specific loggers
 logging.getLogger("pdf_renderer").setLevel(logging.DEBUG)
-logging.getLogger("conversation").setLevel(logging.INFO)
+# logging.getLogger("conversation").setLevel(logging.INFO)
 logging.getLogger("pdfgen").setLevel(logging.DEBUG)
 logging.getLogger("uvicorn").setLevel(logging.INFO)  # Keep uvicorn at INFO level to reduce noise
 logging.getLogger("file_upload").setLevel(logging.DEBUG)  # Set file upload logger to DEBUG

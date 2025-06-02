@@ -77,7 +77,7 @@ async def upload_file_to_openai(file_path: str, purpose: str = "assistants", thr
     Args:
         file_path: Path to the file to upload
         purpose: Purpose of the file (always 'assistants' for file_search)
-        thread_id: The thread ID this file belongs to (for better isolation)
+        thread_id: The thread ID this file belongs to (for logging purposes)
     """
     try:
         # Create OpenAI client instance
@@ -88,25 +88,13 @@ async def upload_file_to_openai(file_path: str, purpose: str = "assistants", thr
             logger.warning(f"Changing file purpose from '{purpose}' to 'assistants' for compatibility with file_search")
             purpose = "assistants"
         
-        # Add thread isolation using metadata if thread_id is provided
-        metadata = {}
-        if thread_id:
-            # Create a thread-specific metadata tag
-            # This won't affect functionality but allows tracking which thread a file belongs to
-            metadata = {
-                "thread_id": thread_id,
-                "isolation_key": f"thread_{thread_id}",
-                "upload_timestamp": str(int(time.time()))
-            }
-            logger.info(f"Uploading file with thread isolation metadata for thread: {thread_id}")
-        
         with open(file_path, 'rb') as file:
             response = client.files.create(
                 file=file,
                 purpose=purpose
             )
             
-        logger.info(f"File successfully uploaded to OpenAI with ID: {response.id}")
+        logger.info(f"File successfully uploaded to OpenAI with ID: {response.id} for thread: {thread_id}")
         return response
     except Exception as e:
         logger.error(f"OpenAI file upload error: {str(e)}")
@@ -135,47 +123,27 @@ async def attach_file_to_thread(thread_id: str, file_id: str, topic: str) -> Dic
         # Create OpenAI client instance with timeout
         client = openai.OpenAI(
             api_key=settings.OPENAI_API_KEY, 
-            timeout=120.0  # 120 second timeout
+            timeout=120.0
         )
         
-        # First, update the Assistant to ensure it has file_search capability
-        # We don't modify any other assistant settings to maintain isolation
+        # Ensure the assistant has file_search capability
         client.beta.assistants.update(
             assistant_id=assistant_id,
             tools=[{"type": "file_search"}]
         )
         
-        # Create isolation key for this thread
-        isolation_key = f"thread_{thread_id}_isolation_{int(time.time())}"
-        
-        # Attach the file specifically to this project's thread with a message
-        # that clearly scopes it to this project only with strong isolation instructions
-        isolation_message = (
-            f"WICHTIGER ISOLATIONS- UND VERARBEITUNGSHINWEIS: Ich habe ein Dokument ausschließlich für dieses spezifische Projekt hochgeladen. "
-            f"Dieses Dokument hat den Isolationsschlüssel: {isolation_key}. "
-            f"Der Inhalt dieses Dokuments darf NUR in diesem spezifischen Thread (ID: {thread_id}) verwendet werden. "
-            f"Referenzieren oder verwenden Sie die Informationen dieses Dokuments nicht in anderen Threads oder Gesprächen. "
-            f"Der Inhalt dieser Datei ist ausschließlich für dieses Projekt und darf Ihre Antworten in anderen Threads nicht beeinflussen.\n\n"
-            f"EXTRAKTIONSHINWEIS: Das System hat automatisch Informationen aus diesem Dokument extrahiert und sowohl "
-            f"die Dokument-Abschnitte ALS AUCH das Deckblatt mit relevanten Daten aus der Datei ausgefüllt. "
-            f"Sie können diese extrahierten Informationen in unserem Gespräch referenzieren. "
-            f"Die Deckblatt-Felder können jetzt Projektdetails, Adressen, Kundeninformationen und andere relevante Daten aus der hochgeladenen Datei enthalten.\n\n"
-            f"BEARBEITUNGSANWEISUNGEN: Fügen Sie NICHT automatisch zusätzlichen Inhalt aus dieser Datei zu den Dokument-Abschnitten hinzu. "
-            f"Helfen Sie mir stattdessen, den extrahierten Inhalt durch Gespräche zu überprüfen. Wir werden gemeinsam explizit diskutieren und entscheiden, "
-            f"ob Anpassungen oder zusätzliche Informationen zur Dokumentstruktur oder zum Deckblatt hinzugefügt werden sollen. "
-            f"Nur wenn ich ausdrücklich Inhalt für einen bestimmten Unterabschnitt genehmige, sollen Änderungen an der Dokumentstruktur vorgenommen werden."
-        )
-        
+        # Simply attach the file to the thread with a basic message
+        # The file is automatically scoped to this thread by OpenAI's API
         response = client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
-            content=isolation_message,
+            content=f"Datei hochgeladen und verfügbar für die Analyse.",
             attachments=[
                 {"file_id": file_id, "tools": [{"type": "file_search"}]}
             ]
         )
         
-        logger.info(f"Successfully attached file {file_id} to thread {thread_id} with assistant {assistant_id} and isolation key {isolation_key}")
+        logger.info(f"Successfully attached file {file_id} to thread {thread_id} with assistant {assistant_id}")
         
         return response
     except Exception as e:
@@ -288,7 +256,7 @@ async def process_file_upload(
         file_upload.status = FileUploadStatus.PROCESSING
         await file_upload.save()
         
-        # Upload to OpenAI with thread_id for isolation
+        # Upload to OpenAI with thread_id for logging
         thread_id = document.thread_id
         openai_file = await upload_file_to_openai(temp_path, thread_id=thread_id)
         
@@ -453,8 +421,7 @@ async def extract_document_data_from_file(file_content: bytes, filename: str, to
         
         # Define the system prompt with much clearer instructions
         system_prompt = """
-        Sie sind ein Experten-Dokumentenanalysator, der auf technische Dokumente spezialisiert ist. Ihre Aufgabe ist es, strukturierte Informationen 
-        aus dem bereitgestellten Dokument zu extrahieren und entsprechend einer vordefinierten Struktur zu organisieren.
+        Ihre Aufgabe ist es, strukturierte Informationen aus dem bereitgestellten Dokument zu extrahieren und entsprechend einer vordefinierten Struktur zu organisieren.
         
         WICHTIGE ANWEISUNGEN:
         1. Sie erhalten rohen Textinhalt, der aus einem Dokument (PDF, DOCX, etc.) extrahiert wurde
