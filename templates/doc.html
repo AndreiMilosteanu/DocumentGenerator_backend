@@ -95,7 +95,7 @@
         <div class="section-title">{{ section.title }}</div>
         
         {% if section.is_empty %}
-            <div class="empty-section">Keine Daten für diesen Abschnitt verfügbar.</div>
+            <div class="empty-section"></div>
         {% else %}
             {% for subsec_name in section.subsections %}
                 <div class="subsection">
@@ -106,10 +106,10 @@
                             {% if subsec_value %}
                                 {{ subsec_value }}
                             {% else %}
-                                <span class="no-data">Kein Inhalt verfügbar</span>
+                                
                             {% endif %}
                         {% else %}
-                            <span class="no-data">Kein Inhalt verfügbar</span>
+                            
                         {% endif %}
                     </div>
                 </div>

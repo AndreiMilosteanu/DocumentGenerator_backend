@@ -102,7 +102,7 @@ async def upload_file_to_openai(file_path: str, purpose: str = "assistants", thr
 
 async def attach_file_to_thread(thread_id: str, file_id: str, topic: str) -> Dict[str, Any]:
     """
-    Attach a file to an OpenAI thread by making it available to the assistant.
+    Attach a file to an OpenAI thread and instruct the assistant to analyze it.
     
     Args:
         thread_id: The ID of the thread to attach the file to
@@ -132,20 +132,30 @@ async def attach_file_to_thread(thread_id: str, file_id: str, topic: str) -> Dic
             tools=[{"type": "file_search"}]
         )
         
-        # Simply attach the file to the thread with a basic message
-        # The file is automatically scoped to this thread by OpenAI's API
+        # Create analysis instruction message
+        instruction_message = (
+            f"Eine neue Datei wurde hochgeladen. Bitte analysieren Sie diese Datei und extrahieren Sie relevante "
+            f"Informationen entsprechend unserer Dokumentstruktur. Verwenden Sie die file_search Funktion, "
+            f"um den Inhalt zu durchsuchen. Behalten Sie das vorgegebene Format bei:\n"
+            f"1) Ein JSON-Objekt mit den extrahierten Informationen\n"
+            f"2) Ihre menschenlesbare Antwort nach zwei Zeilenumbrüchen"
+        )
+        
+        # Send message with file attachment and tools
         response = client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
-            content=f"Datei hochgeladen und verfügbar für die Analyse.",
-            attachments=[
-                {"file_id": file_id, "tools": [{"type": "file_search"}]}
-            ]
+            content=instruction_message,
+            attachments=[{
+                "file_id": file_id,
+                "tools": [{"type": "file_search"}]
+            }]
         )
         
-        logger.info(f"Successfully attached file {file_id} to thread {thread_id} with assistant {assistant_id}")
+        logger.info(f"File {file_id} attached to thread {thread_id} with analysis instructions")
         
         return response
+        
     except Exception as e:
         logger.error(f"Error attaching file to thread: {str(e)}")
         raise FileUploadError(f"Failed to attach file to thread: {str(e)}")
@@ -201,7 +211,7 @@ async def process_file_upload(
     2. Save to temporary storage
     3. Upload to OpenAI
     4. Create database record
-    5. Attach to thread if available (or store for later attachment)
+    5. Attach to thread
     6. Clean up temporary file
     
     Returns the created FileUpload record.
@@ -256,18 +266,17 @@ async def process_file_upload(
         file_upload.status = FileUploadStatus.PROCESSING
         await file_upload.save()
         
-        # Upload to OpenAI with thread_id for logging
-        thread_id = document.thread_id
-        openai_file = await upload_file_to_openai(temp_path, thread_id=thread_id)
+        # Upload to OpenAI
+        openai_file = await upload_file_to_openai(temp_path, thread_id=document.thread_id)
         
         # Update record with OpenAI file ID
         file_upload.openai_file_id = openai_file.id
         await file_upload.save()
         
-        # Attach to thread
-        logger.info(f"Attaching file {openai_file.id} to thread {thread_id}")
-        await attach_file_to_thread(thread_id, openai_file.id, document.topic)
-            
+        # Attach to thread and instruct assistant to analyze
+        logger.info(f"Attaching file {openai_file.id} to thread {document.thread_id}")
+        await attach_file_to_thread(document.thread_id, openai_file.id, document.topic)
+        
         # Update status to READY
         file_upload.status = FileUploadStatus.READY
         await file_upload.save()

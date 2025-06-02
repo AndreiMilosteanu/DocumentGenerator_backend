@@ -1,56 +1,42 @@
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Baugrundgutachten</title>
+    <title>{{ title }}</title>
     <style>
-        @page {
-            margin: 2.5cm 2.5cm 2.5cm 2.5cm;
-        }
-        @page:first {
-            @bottom-center {
-                content: "";
-            }
-        }
         body {
             font-family: Arial, sans-serif;
-            line-height: 1.5;
-            font-size: 12pt;
+            line-height: 1.6;
+            color: #333;
             margin: 0;
-            padding: 0;
-        }
-        .cover-page {
-            height: 100vh;
-            page-break-after: always;
-            position: relative;
+            padding: 20px;
         }
         .header-banner {
-            background-color: #f2f2f2;
-            padding: 35px 45px;
-            border-radius: 0 0 10px 10px;
-            margin-bottom: 45px;
-            position: relative;
-            overflow: hidden;
-        }
-        .header-image {
-            position: absolute;
-            right: 45px;
-            top: 25px;
-            width: 130px;
+            text-align: center;
+            margin-bottom: 40px;
         }
         .cover-title {
             font-size: 28pt;
             font-weight: bold;
-            color: #555;
+            margin-bottom: 10px;
+            color: #333;
         }
         .cover-subtitle {
             font-size: 16pt;
-            margin-top: 8px;
-            color: #777;
+            color: #666;
+        }
+        .header-image {
+            margin-top: 20px;
+        }
+        .cover-page {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            page-break-after: always;
         }
         .content-section {
-            padding: 0 45px;
-            margin-bottom: 35px;
+            margin-bottom: 25px;
         }
         .section-label {
             font-size: 12pt;
@@ -240,7 +226,7 @@
                 {% if section_data and section_data[section_key] and section_data[section_key][subsection_key] %}
                     {{ section_data[section_key][subsection_key]|safe }}
                 {% else %}
-                    <p>[Kein Inhalt verfügbar]</p>
+                    <p></p>
                 {% endif %}
             {% endfor %}
             

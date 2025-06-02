@@ -53,47 +53,8 @@ Geben Sie ein JSON-Objekt zurück, das genau wie die Vorlage strukturiert ist (m
 Für jeden Abschnitt, in dem Sie Informationen finden, extrahieren Sie die TATSÄCHLICHEN DATEN aus dem Dokument - nicht nur Platzhalter.
 Geben Sie nur leere Strings für Abschnitte zurück, in denen KEINE Informationen im Dokument vorhanden sind."
 
-2. FILE UPLOAD - COVER PAGE EXTRACTION
----------------------------------------
-File: utils/file_upload.py
-Function: extract_cover_page_data_from_file()
-Type: System Prompt + User Prompt
 
-System Prompt:
-"Sie sind ein Experten-Dokumentenanalysator, der auf das Extrahieren von Deckblatt-Informationen aus technischen Dokumenten spezialisiert ist.
-Ihre Aufgabe ist es, Informationen zu identifizieren und zu extrahieren, die für ein Dokumenten-Deckblatt geeignet sind.
-
-WICHTIGE ANWEISUNGEN:
-1. Sie erhalten rohen Textinhalt, der aus einem Dokument extrahiert wurde
-2. Sie erhalten eine Deckblatt-Struktur mit Kategorien und Feldern
-3. Extrahieren Sie TATSÄCHLICHE INFORMATIONEN aus dem Dokument, die für jedes Feld relevant sind
-4. Konzentrieren Sie sich auf identifizierende Informationen wie Projektnamen, Adressen, Kundendaten, etc.
-5. Geben Sie KEINE leeren Werte oder Platzhalter zurück, wenn Sie relevante Informationen finden
-6. Formatieren Sie extrahierte Daten ordnungsgemäß (vollständige Adressen, Firmenamen, etc.)
-
-Geben Sie NUR ein JSON-Objekt zurück, das genau der bereitgestellten Deckblatt-Struktur entspricht.
-Verwenden Sie leere Strings nur für Felder, in denen wirklich keine relevanten Informationen im Dokument gefunden werden."
-
-User Prompt:
-"Bitte analysieren Sie diesen Dokumentinhalt und extrahieren Sie Deckblatt-Informationen entsprechend der unten stehenden Struktur.
-Extrahieren Sie TATSÄCHLICHE INFORMATIONEN, die für ein Dokumenten-Deckblatt geeignet sind - Projektnamen, Adressen, Kundeninfo, etc.
-
-DECKBLATT-STRUKTUR: [JSON structure provided]
-DOKUMENTINHALT: [File content provided]
-
-Konzentrieren Sie sich auf das Extrahieren von:
-- Projektnamen und -beschreibungen
-- Vollständige Adressen (Straße, Hausnummer, Postleitzahl, Stadt)
-- Firmennamen und Kontaktpersonen der Kunden
-- Auftrags-/Referenznummern
-- Wichtige Daten
-- Autor-/Ersteller-Informationen
-- Standortinformationen, die für den Dokumenttyp relevant sind
-
-Für jedes Feld, in dem Sie Informationen finden, extrahieren Sie die TATSÄCHLICHEN DATEN aus dem Dokument.
-Geben Sie nur leere Strings für Felder zurück, in denen KEINE relevanten Informationen im Dokument vorhanden sind."
-
-3. FILE ATTACHMENT MESSAGE
+2. FILE ATTACHMENT MESSAGE
 ---------------------------
 File: utils/file_upload.py
 Function: attach_file_to_thread()
@@ -102,7 +63,7 @@ Type: User Message
 Message:
 "Datei hochgeladen und verfügbar für die Analyse."
 
-4. CONVERSATION SYSTEM PROMPT
+3. CONVERSATION SYSTEM PROMPT
 ------------------------------
 File: routers/conversation.py
 Function: start_conversation() / start_subsection_conversation()
@@ -120,7 +81,7 @@ Der Benutzer sieht nur den menschenlesbaren Teil, aber das JSON ist kritisch fü
 WICHTIG: Verwenden Sie KEINE Markdown-Codeblöcke (```) für den JSON-Teil. Stellen Sie das rohe JSON bereit, das mit dem '{' Zeichen beginnt.
 NICHTEINHALTUNG DIESES FORMATS führt zu Datenverlust. Beginnen Sie Ihre Antwort immer mit einem gültigen JSON-Objekt."
 
-5. FORMAT CORRECTION MESSAGE
+4. FORMAT CORRECTION MESSAGE
 -----------------------------
 File: routers/conversation.py
 Function: _send_format_correction()
@@ -140,7 +101,7 @@ Ihre menschliche Antwort hier...
 
 Bitte helfen Sie weiter mit dem [topic] Dokument, aber FOLGEN SIE IMMER GENAU DIESEN EXAKTEN FORMAT."
 
-6. SUBSECTION CONTEXT MESSAGE
+5. SUBSECTION CONTEXT MESSAGE
 ------------------------------
 File: routers/conversation.py
 Function: start_subsection_conversation()
@@ -149,7 +110,7 @@ Type: User Message
 Message:
 "Wir arbeiten jetzt am Unterabschnitt '[subsection]' im Abschnitt '[section]'."
 
-7. MESSAGE-FILE DEFAULT MESSAGE
+6. MESSAGE-FILE DEFAULT MESSAGE
 --------------------------------
 File: routers/upload.py
 Function: upload_file_to_message()
@@ -157,25 +118,6 @@ Type: User Message
 
 Default Message (when no message provided):
 "Ich habe eine Datei hochgeladen: [filename]. Bitte analysieren Sie diese."
-
-8. BACKGROUND FILE ANALYSIS (CURRENTLY DISABLED)
--------------------------------------------------
-File: routers/upload.py
-Function: process_assistant_response()
-Type: User Message (currently commented out)
-
-Message (disabled):
-"Ich habe eine Datei für Sie zum Analysieren hochgeladen. Bitte untersuchen Sie den Inhalt gründlich und extrahieren Sie ALLE relevanten Informationen, die zur Befüllung unserer Dokumentstruktur verwendet werden könnten. Beschränken Sie sich nicht auf einen bestimmten Abschnitt - identifizieren Sie stattdessen Informationen, die überall in unsere Dokumentvorlage passen.
-
-WICHTIG: Das System hat auch automatisch Deckblatt-Informationen aus dieser Datei extrahiert und die Deckblatt-Felder mit relevanten Projektdetails, Adressen, Kundeninformationen und anderen Daten befüllt. Sie können diese extrahierten Deckblatt-Informationen in unserem Gespräch referenzieren.
-
-Unsere Dokumentstruktur für das Thema '[topic]' ist: [structure]
-
-Für jeden Abschnitt und Unterabschnitt, in dem Sie relevante Informationen in der Datei finden, extrahieren und strukturieren Sie diese bitte. Ihre Antwort sollte JSON-Daten entsprechend unserer Dokumentstruktur sowie eine Zusammenfassung dessen, was Sie gefunden haben, enthalten.
-
-Denken Sie daran, das erforderliche Format einzuhalten, indem Sie gültige JSON-Daten zusammen mit Ihrer menschlichen Antwort zurückgeben."
-
-NOTE: This message is currently disabled (commented out) and set to an empty string in the code.
 
 SUMMARY
 -------
