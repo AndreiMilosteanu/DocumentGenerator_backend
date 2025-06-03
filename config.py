@@ -4,6 +4,7 @@ from typing import List, Dict, Optional
 from dotenv import load_dotenv, dotenv_values
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
+import logging
 
 # Load environment variables
 load_dotenv(dotenv_path=".env", override=False)
@@ -44,12 +45,29 @@ class Settings(BaseSettings):
                 self.PLATTENDRUCKVERSUCH_ASSISTANT_ID
             ] if aid), None)
         
-        return {
+        # Debug logging
+        logger = logging.getLogger("config")
+        logger.info(f"Loading assistant IDs:")
+        logger.info(f"Default ASSISTANT_ID: {self.ASSISTANT_ID}")
+        logger.info(f"DEKLARATIONSANALYSE_ASSISTANT_ID: {self.DEKLARATIONSANALYSE_ASSISTANT_ID}")
+        logger.info(f"BODENUNTERSUCHUNG_ASSISTANT_ID: {self.BODENUNTERSUCHUNG_ASSISTANT_ID}")
+        logger.info(f"BAUGRUNDGUTACHTEN_ASSISTANT_ID: {self.BAUGRUNDGUTACHTEN_ASSISTANT_ID}")
+        logger.info(f"PLATTENDRUCKVERSUCH_ASSISTANT_ID: {self.PLATTENDRUCKVERSUCH_ASSISTANT_ID}")
+        logger.info(f"Using fallback_id: {fallback_id}")
+        
+        assistants = {
             "Deklarationsanalyse": self.DEKLARATIONSANALYSE_ASSISTANT_ID or fallback_id,
             "Bodenuntersuchung": self.BODENUNTERSUCHUNG_ASSISTANT_ID or fallback_id,
             "Baugrundgutachten": self.BAUGRUNDGUTACHTEN_ASSISTANT_ID or fallback_id,
             "Plattendruckversuch": self.PLATTENDRUCKVERSUCH_ASSISTANT_ID or fallback_id
         }
+        
+        # Log final mapping
+        logger.info("Final assistant mapping:")
+        for topic, aid in assistants.items():
+            logger.info(f"{topic}: {aid}")
+        
+        return assistants
 
     class Config:
         env_file = ".env"
