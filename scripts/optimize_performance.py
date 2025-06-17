@@ -127,13 +127,6 @@ def check_environment_optimizations():
     
     # Check OpenAI model configuration
     model = settings.GPT_MODEL
-    if "gpt-4" in model.lower():
-        if "turbo" in model.lower():
-            print(f"✓ OpenAI Model: {model} (optimized)")
-        else:
-            optimizations.append("Consider using gpt-4-turbo for better performance")
-    else:
-        print(f"✓ OpenAI Model: {model}")
     
     # Check if multiple assistants are configured
     assistant_count = sum(1 for aid in settings.TOPIC_ASSISTANTS.values() if aid)
@@ -236,7 +229,7 @@ def create_optimized_env_template():
 
 # OpenAI Configuration
 OPENAI_API_KEY=your_openai_api_key_here
-GPT_MODEL=gpt-4-turbo  # Faster than regular gpt-4
+GPT_MODEL=gpt-4o  # Faster than regular gpt-4
 
 # Assistant IDs (configure topic-specific assistants for better performance)
 ASSISTANT_ID=your_default_assistant_id

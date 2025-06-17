@@ -29,7 +29,7 @@ Add to your `.env` file:
 # Performance optimizations
 PYTHONUNBUFFERED=1
 DEBUG=False
-GPT_MODEL=gpt-4-turbo  # Faster than regular gpt-4
+GPT_MODEL=gpt-4o  # Faster than regular gpt-4
 ```
 
 ## 📊 Performance Testing

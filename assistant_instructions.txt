@@ -10,7 +10,7 @@ Function: extract_document_data_from_file()
 Type: System Prompt + User Prompt
 
 System Prompt:
-"Sie sind ein Experten-Dokumentenanalysator, der auf technische Dokumente spezialisiert ist. Ihre Aufgabe ist es, strukturierte Informationen aus dem bereitgestellten Dokument zu extrahieren und entsprechend einer vordefinierten Struktur zu organisieren.
+"Ihre Aufgabe ist es, strukturierte Informationen aus dem bereitgestellten Dokument zu extrahieren und entsprechend einer vordefinierten Struktur zu organisieren.
 
 WICHTIGE ANWEISUNGEN:
 1. Sie erhalten rohen Textinhalt, der aus einem Dokument (PDF, DOCX, etc.) extrahiert wurde

@@ -22,7 +22,7 @@ This guide explains how to run the DocumentGenerator backend using Docker and Do
    # OpenAI Configuration (REQUIRED)
    OPENAI_API_KEY=your_openai_api_key_here
    ASSISTANT_ID=your_default_assistant_id_here
-   GPT_MODEL=gpt-4-turbo
+   GPT_MODEL=gpt-4o
 
    # Topic-specific OpenAI Assistants (optional)
    DEKLARATIONSANALYSE_ASSISTANT_ID=
@@ -82,7 +82,7 @@ This guide explains how to run the DocumentGenerator backend using Docker and Do
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GPT_MODEL` | OpenAI model to use | `gpt-4-turbo` |
+| `GPT_MODEL` | OpenAI model to use | `gpt-4o` |
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:postgres@db:5432/documentgenerator` |
 | `JWT_ALGORITHM` | JWT algorithm | `HS256` |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Token expiration time | `43200` (30 days) |

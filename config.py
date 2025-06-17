@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings
 import logging
 
 # Load environment variables
-load_dotenv(dotenv_path=".env", override=False)
+load_dotenv(dotenv_path=".env", override=True)
 
 def get_env_keys(env_path: str = ".env") -> List[str]:
     values = dotenv_values(env_path)
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
     DATA_DIR: Path = Field(default=Path("./data"))
     ALLOWED_FILE_TYPES: List[str] = Field(default=[".pdf", ".docx", ".png", ".jpg", ".jpeg"])
-    GPT_MODEL: str = Field(default="gpt-4-turbo", env="GPT_MODEL")  # Default to GPT-4 Turbo for better extraction capabilities
+    GPT_MODEL: str = Field(default="gpt-4o", env="GPT_MODEL")  # Default to GPT-4 Turbo for better extraction capabilities
     
     # JWT settings
     JWT_SECRET_KEY: str = Field(..., env="JWT_SECRET_KEY")

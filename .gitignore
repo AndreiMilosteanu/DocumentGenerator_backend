@@ -45,3 +45,13 @@ docker-compose.override.yml
 
 # Aerich migration files to ignore
 !migrations/.gitkeep
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+test_db.sqlite3
+.tox/
+coverage.xml
+*.cover
+.hypothesis/
